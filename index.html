@@ -854,8 +854,8 @@ body{
 
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:12px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
-.form-group input,.form-group textarea{width:100%;padding:12px 14px;background:rgba(255,255,255,.07);border:1px solid var(--border);border-radius:10px;color:var(--white);font-size:16px;font-family:inherit;transition:border .2s;-webkit-appearance:none}
-.form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--gold)}
+.form-group input,.form-group textarea{width:100%;padding:12px 14px;background:rgba(255,255,255,.07);border:1px solid var(--border);border-radius:10px;color:var(--white);font-size:16px;font-family:inherit;transition:border .2s, box-shadow .2s;-webkit-appearance:none;box-shadow:none;}
+.form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--gold);box-shadow: 0 0 0 1px var(--gold);}
 .form-group textarea{resize:vertical;min-height:80px}
 .field-hint{font-size:11px;color:var(--gray-400);margin-top:5px}
 
@@ -866,12 +866,11 @@ body{
 .btn-copy{background:var(--green-mid);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 
 #view-auth{background:linear-gradient(160deg,var(--green-dark) 0%,#0a1a0d 50%,#1a1200 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;padding-top:max(24px,env(safe-area-inset-top,24px));padding-bottom:max(24px,env(safe-area-inset-bottom,24px))}
-.auth-logo{text-align:center;margin-bottom:28px}
-.auth-logo .ball{font-size:52px;animation:bounce 1.2s ease-in-out infinite alternate;display:block}
-@keyframes bounce{to{transform:rotate(360deg)}}
+.auth-logo{text-align:center;margin-bottom:28px;width:100%;max-width:400px}
+.auth-logo .ball{font-size:52px;display:block;margin-bottom:8px;line-height:1;}
 .auth-logo h1{font-family:'Bebas Neue';font-size:40px;color:var(--gold);letter-spacing:2px;line-height:1}
 .auth-logo p{color:var(--gray-400);font-size:13px;margin-top:4px}
-.auth-card{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:400px}
+.auth-card{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:400px;box-sizing:border-box}
 .auth-tabs{display:flex;margin-bottom:20px;border-bottom:1px solid var(--border)}
 .auth-tab{flex:1;padding:10px;background:none;border:none;color:var(--gray-400);font-size:15px;font-weight:600;cursor:pointer;transition:color .2s}
 .auth-tab.active{color:var(--gold);border-bottom:2px solid var(--gold)}
