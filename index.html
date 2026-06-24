@@ -13,18 +13,21 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, arrayUnion, onSnapshot, query, where, serverTimestamp, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics.js";
 
+// Credenciais atualizadas do banco de homologação
 const firebaseConfig = {
-  apiKey: "AIzaSyCWmI-VYCTqAKSSOCf2jhjM7CSzJFpyS30",
-  authDomain: "bolaodaalegria-4f433.firebaseapp.com",
-  projectId: "bolaodaalegria-4f433",
-  storageBucket: "bolaodaalegria-4f433.firebasestorage.app",
-  messagingSenderId: "357246060944",
-  appId: "1:357246060944:web:f277e7017e68269f0a0b15",
-  measurementId: "G-ME5QSPFD2X"
+  apiKey: "AIzaSyDIg_DxCxbl0nfr4oOpzsT07DGqL6phdFQ",
+  authDomain: "homolboloadaalegria.firebaseapp.com",
+  projectId: "homolboloadaalegria",
+  storageBucket: "homolboloadaalegria.firebasestorage.app",
+  messagingSenderId: "37803285375",
+  appId: "1:37803285375:web:cfb0ba26b8bc33a3c0d84a",
+  measurementId: "G-C2QY6V32FG"
 };
 
 const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -50,7 +53,6 @@ const loading = show => { const el=$('loading-overlay'); if(el) el.style.display
 onAuthStateChanged(auth, async user => {
   if (user) {
     currentUser = user;
-    // Load user profile from Firestore
     try {
       const snap = await getDoc(doc(db,'users',user.uid));
       userProfile = snap.exists() ? snap.data() : {};
@@ -205,7 +207,6 @@ window.loadUserBoloes = async () => {
       container.innerHTML=`<div class="empty-state"><span class="empty-icon">⚽</span><p>Nenhum bolão ainda.<br>Crie um ou aguarde um convite!</p></div>`;
       return;
     }
-    // Sort: open first, then by date
     boloes.sort((a,b)=>{
       const order={open:0,closed:1,finished:2};
       if(order[a.status]!==order[b.status]) return order[a.status]-order[b.status];
@@ -276,7 +277,7 @@ function renderBolaoDetail(b) {
   const diff=gd-now;
   const isCreator=b.creatorId===currentUser.uid;
   const isAdmin=(b.adminId||b.creatorId)===currentUser.uid;
-  const canSeeAdminPanel=isAdmin||isCreator; // Permitir que o Criador também gerencie/veja o painel
+  const canSeeAdminPanel=isAdmin||isCreator; 
   const lances=b.lances||[];
   const isParticipant=(b.participants||[]).some(p=>p.userId===currentUser.uid);
   const hasLances=lances.some(l=>l.userId===currentUser.uid);
@@ -298,7 +299,6 @@ function renderBolaoDetail(b) {
   const el=$('bolao-detail-content');
   if(!el) return;
 
-  // ── JOIN SCREEN ────────────────────────────────────────────────────────────
   if(!canSeeContent){
     el.innerHTML=`
     <div class="detail-header">
@@ -325,11 +325,8 @@ function renderBolaoDetail(b) {
     return;
   }
 
-  // ── MAIN SCREEN ───────────────────────────────────────────────────────────
-  // Card: Apostas confirmadas (inline acima das infos)
   const lancesPublicosHTML = renderLancesPublicos(b);
 
-  // Card: Informações do bolão
   const infoCardHTML = `
   <div class="collapsible-card" id="card-info">
     <button class="card-header" onclick="toggleCard('info')">
@@ -376,7 +373,6 @@ function renderBolaoDetail(b) {
     </div>
   </div>`;
 
-  // Card: Lances (fazer lance + meus lances)
   const myLancesHTML = myLances.length>0?`
   <div class="my-lances-list">
     <div class="my-lances-title">Meus Lances</div>
@@ -432,13 +428,9 @@ function renderBolaoDetail(b) {
     </div>
   </div>`;
 
-  // Admin panel usando a nova flag permissiva (criador ou admin)
   const adminPanelHTML=canSeeAdminPanel?renderPainelAdmin(b):'';
-
-  // Resultados
   const resultadosHTML=(b.status==='closed'||b.status==='finished')?renderResultados(b):'';
 
-  // Informar resultado (admin ou criador)
   const informarResultadoHTML=canSeeAdminPanel&&b.status==='closed'?`
   <div class="collapsible-card" id="card-resultado">
     <button class="card-header" onclick="toggleCard('resultado')">
@@ -631,7 +623,6 @@ window.confirmarPagamento = async (bolaoId, lanceId) => {
 
 window.uploadComprovante = async (bolaoId, lanceId, input) => {
   const file=input.files[0]; if(!file) return;
-  // Block if encerrado
   if(currentBolao){
     const gd=new Date(currentBolao.gameDateTime);
     const deadline=new Date(gd.getTime()-30*60*1000);
@@ -720,7 +711,6 @@ window.participarBolao = async bolaoId => {
     const snap=await getDoc(doc(db,'boloes',bolaoId));
     const b=snap.data();
     if(!(b.participants||[]).some(p=>p.userId===currentUser.uid)){
-      // Get user pix from profile
       const userSnap=await getDoc(doc(db,'users',currentUser.uid));
       const pix=userSnap.exists()?userSnap.data().pixRecebimento||'':'';
       await updateDoc(doc(db,'boloes',bolaoId),{participants:arrayUnion({
@@ -850,22 +840,18 @@ body{
   -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation;
 }
 
-/* ── LOADING ── */
 #loading-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;justify-content:center;align-items:center}
 .spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ── TOAST ── */
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#222;color:#fff;
   padding:12px 20px;border-radius:30px;font-size:14px;font-weight:500;opacity:0;transition:all .3s;
   z-index:10000;white-space:nowrap;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast-success{background:var(--green-mid)}.toast-error{background:var(--danger)}.toast-info{background:#37474F}
 
-/* ── VIEWS ── */
 .view{display:none;min-height:100vh}
 
-/* ── FORMS ── */
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:12px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
 .form-group input,.form-group textarea{width:100%;padding:12px 14px;background:rgba(255,255,255,.07);border:1px solid var(--border);border-radius:10px;color:var(--white);font-size:16px;font-family:inherit;transition:border .2s;-webkit-appearance:none}
@@ -873,18 +859,16 @@ body{
 .form-group textarea{resize:vertical;min-height:80px}
 .field-hint{font-size:11px;color:var(--gray-400);margin-top:5px}
 
-/* ── BUTTONS ── */
 .btn-primary{width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));color:var(--dark);font-size:16px;font-weight:700;border:none;border-radius:12px;cursor:pointer;transition:transform .15s,box-shadow .15s;min-height:50px}
 .btn-primary:active{transform:translateY(1px)}
 .btn-danger{padding:12px 20px;background:var(--danger);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;width:100%;min-height:46px}
 .btn-back{background:none;border:1px solid var(--border);color:var(--gray-400);padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer;min-height:38px}
 .btn-copy{background:var(--green-mid);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 
-/* ── AUTH ── */
 #view-auth{background:linear-gradient(160deg,var(--green-dark) 0%,#0a1a0d 50%,#1a1200 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;padding-top:max(24px,env(safe-area-inset-top,24px));padding-bottom:max(24px,env(safe-area-inset-bottom,24px))}
 .auth-logo{text-align:center;margin-bottom:28px}
 .auth-logo .ball{font-size:52px;animation:bounce 1.2s ease-in-out infinite alternate;display:block}
-@keyframes bounce{to{transform:translateY(-10px)}}
+@keyframes bounce{to{transform:rotate(360deg)}}
 .auth-logo h1{font-family:'Bebas Neue';font-size:40px;color:var(--gold);letter-spacing:2px;line-height:1}
 .auth-logo p{color:var(--gray-400);font-size:13px;margin-top:4px}
 .auth-card{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:400px}
@@ -893,7 +877,6 @@ body{
 .auth-tab.active{color:var(--gold);border-bottom:2px solid var(--gold)}
 .auth-panel{display:none}
 
-/* ── HOME ── */
 #view-home{background:var(--dark);padding-bottom:80px}
 .top-bar{background:linear-gradient(135deg,var(--green-dark),#0a0f0a);padding:max(20px,env(safe-area-inset-top,20px)) 16px 14px;border-bottom:1px solid var(--border)}
 .top-bar-row{display:flex;align-items:center;justify-content:space-between}
@@ -906,7 +889,6 @@ body{
 .section-header h2{font-size:20px;font-weight:700}
 .btn-new{background:var(--gold);color:var(--dark);border:none;padding:8px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
 
-/* ── BOLÃO CARDS (home) ── */
 .bolao-card{background:linear-gradient(135deg,var(--card-bg),#0d1f10);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;cursor:pointer;transition:transform .15s,border-color .15s}
 .bolao-card:active{transform:scale(.99)}
 .bolao-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
@@ -933,21 +915,18 @@ body{
 .loading-dots span:nth-child(2){animation-delay:.2s}.loading-dots span:nth-child(3){animation-delay:.4s}
 @keyframes dot{to{opacity:.2;transform:translateY(-4px)}}
 
-/* ── PROFILE VIEW ── */
 #view-profile{background:var(--dark);padding-bottom:80px}
 .profile-header{background:linear-gradient(135deg,var(--green-dark),#0a0f0a);padding:max(20px,env(safe-area-inset-top,20px)) 16px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
 .profile-header h2{font-size:20px;font-weight:700}
 .profile-form{padding:20px;max-width:480px;margin:0 auto}
 .profile-avatar{width:72px;height:72px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));border-radius:50%;font-family:'Bebas Neue';font-size:36px;color:var(--dark);display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
 
-/* ── CREATE ── */
 #view-create{background:var(--dark);padding-bottom:40px}
 .view-header{background:linear-gradient(135deg,var(--green-dark),#0a0f0a);padding:max(20px,env(safe-area-inset-top,20px)) 16px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
 .view-header h2{font-size:20px;font-weight:700}
 .create-form{padding:16px;max-width:500px;margin:0 auto}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-/* ── BOLÃO DETAIL ── */
 #view-bolao-detail{background:var(--dark);padding-bottom:80px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .detail-header{background:linear-gradient(135deg,var(--green-dark),#0a0f0a);padding:max(16px,env(safe-area-inset-top,16px)) 16px 14px;border-bottom:1px solid var(--border)}
 .detail-title{font-family:'Bebas Neue';font-size:26px;color:var(--gold);letter-spacing:1px;margin:6px 0 2px}
@@ -959,7 +938,6 @@ body{
 .game-date{font-size:11px;color:var(--gray-400);white-space:nowrap}
 .detail-cards{padding:10px 12px 20px}
 
-/* ── COLLAPSIBLE CARDS ── */
 .collapsible-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden}
 .card-header{width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:none;border:none;color:var(--white);font-size:14px;font-weight:700;cursor:pointer;text-align:left;gap:8px;-webkit-tap-highlight-color:transparent}
 .card-header:active{background:rgba(255,255,255,.04)}
@@ -974,7 +952,6 @@ body{
 .card-resultado-final{border-color:rgba(156,39,176,.3)}
 .card-fechado .card-header{background:linear-gradient(135deg,rgba(255,152,0,.08),transparent)}
 
-/* ── ADMIN BANNER (dentro do card info) ── */
 .admin-banner{display:flex;align-items:center;gap:12px;background:rgba(249,168,37,.08);border:1px solid rgba(249,168,37,.2);border-radius:10px;padding:12px;margin-bottom:12px}
 .admin-icon{font-size:22px}
 .admin-text{flex:1}
@@ -982,13 +959,11 @@ body{
 .admin-name{font-size:15px;font-weight:700;color:var(--gold)}
 .btn-trocar-admin{background:rgba(255,214,0,.15);border:1px solid var(--gold);color:var(--gold);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 
-/* ── INFO GRID ── */
 .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
 .info-card{background:rgba(255,255,255,.04);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--gray-400)}
 .info-card strong{display:block;color:var(--white);margin-top:3px;font-size:13px;word-break:break-all}
 .pix-key{cursor:pointer;color:var(--white)}
 
-/* ── STATS ROW ── */
 .stats-row{display:flex;gap:6px;margin-bottom:10px}
 .stat-box{flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:10px 4px;text-align:center}
 .stat-num{display:block;font-family:'Bebas Neue';font-size:22px;color:var(--gold);line-height:1}
@@ -997,21 +972,17 @@ body{
 .acumulado-banner{background:linear-gradient(135deg,#4A148C,#7B1FA2);border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:10px}
 .aviso-comprovante-inline{background:rgba(229,57,53,.08);border:1px solid rgba(229,57,53,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#EF9A9A;margin-bottom:10px}
 
-/* ── PARTICIPANTS ── */
 .participants-row{margin-bottom:10px}
 .participants-label{font-size:12px;font-weight:700;color:var(--gray-400);margin-bottom:6px}
 .participant-list{display:flex;flex-wrap:wrap;gap:6px}
 .participant-chip{background:rgba(255,255,255,.07);border:1px solid var(--border);border-radius:16px;padding:3px 10px;font-size:12px}
-.empty-p{color:var(--gray-400);font-size:12px}
 
-/* ── SHARE ── */
 .share-row{margin-top:4px}
 .share-label{font-size:12px;font-weight:600;color:var(--gray-400);margin-bottom:6px}
 .share-link-box{display:flex;gap:6px;margin-bottom:4px}
 .share-link-box input{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--gray-400);padding:8px 10px;font-size:11px}
 .invited-list{font-size:11px;color:var(--gray-400)}
 
-/* ── JOIN CARD ── */
 .join-card{margin:16px 12px;background:var(--card-bg);border:1px solid var(--gold);border-radius:16px;padding:24px;text-align:center}
 .join-icon{font-size:44px;margin-bottom:10px}
 .join-title{font-family:'Bebas Neue';font-size:24px;color:var(--gold);margin-bottom:6px}
@@ -1020,7 +991,6 @@ body{
 .aviso-comprovante{background:rgba(229,57,53,.1);border:1px solid rgba(229,57,53,.25);border-radius:8px;padding:8px 12px;font-size:12px;color:#EF9A9A;margin-bottom:14px}
 .btn-join{font-size:16px;min-height:50px}
 
-/* ── LANCES PÚBLICOS ── */
 .aviso-mini{font-size:11px;color:var(--gray-400);background:rgba(255,255,255,.03);padding:7px 10px;border-radius:7px;margin-bottom:8px}
 .lance-pub-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .lance-pub-row:last-child{border-bottom:none}
@@ -1029,7 +999,6 @@ body{
 .lance-pub-placar strong{color:var(--gold)}
 .badge-comp-ok{font-size:14px}
 
-/* ── BET SUBCARD ── */
 .bet-subcard{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:12px}
 .bet-subcard-title{font-size:13px;font-weight:700;margin-bottom:10px;color:var(--gold-dark)}
 .score-input-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
@@ -1039,7 +1008,6 @@ body{
 .deadline-info{text-align:center;font-size:11px;color:var(--gold-dark);margin-bottom:10px}
 .apostaEncerrada{background:rgba(229,57,53,.1);border:1px solid rgba(229,57,53,.3);border-radius:10px;padding:12px;font-size:13px;color:#EF9A9A;text-align:center;margin-bottom:10px}
 
-/* ── MEUS LANCES ── */
 .my-lances-list{margin-top:4px}
 .my-lances-title{font-size:13px;font-weight:700;color:var(--gray-400);margin-bottom:8px;padding-top:4px;border-top:1px solid rgba(255,255,255,.07)}
 .my-lance-card{background:rgba(255,255,255,.04);border-radius:10px;padding:11px;margin-bottom:8px}
@@ -1061,7 +1029,6 @@ body{
 .concluido-msg{text-align:center;color:var(--green-light);font-size:12px;margin-top:6px}
 .encerrado-aviso{background:rgba(229,57,53,.08);border:1px solid rgba(229,57,53,.2);border-radius:7px;padding:8px 10px;font-size:12px;color:#EF9A9A;margin-top:5px}
 
-/* ── ADMIN PANEL ── */
 .admin-sub{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gold-dark);margin-bottom:7px}
 .comp-admin-card{background:rgba(255,255,255,.04);border-radius:9px;padding:9px 11px;margin-bottom:7px}
 .comp-admin-card.sem-comp{opacity:.6;display:flex;justify-content:space-between;align-items:center;font-size:12px}
@@ -1076,7 +1043,6 @@ body{
 .ganhador-admin-valor{font-family:'Bebas Neue';font-size:20px;color:var(--gold)}
 .ganhador-admin-pix{font-size:12px;color:var(--gray-200);margin-top:2px}
 
-/* ── RESULTADOS ── */
 .placar-final{font-family:'Bebas Neue';font-size:28px;text-align:center;margin-bottom:10px}
 .placar-final span{color:var(--gold);font-size:34px}
 .ganhadores-pub{background:rgba(255,214,0,.1);border-radius:10px;padding:10px;margin-bottom:10px;text-align:center}
@@ -1087,13 +1053,11 @@ body{
 .section-title{font-size:14px;font-weight:700;margin-bottom:8px}
 .btn-resultado{margin-top:10px}
 
-/* ── BOTTOM NAV ── */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#0D1A0F;border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom,0)}
 .nav-btn{flex:1;padding:10px 0 7px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:10px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:color .2s;min-height:52px;-webkit-tap-highlight-color:transparent}
 .nav-btn .icon{font-size:20px}
 .nav-btn.active,.nav-btn:hover{color:var(--gold)}
 
-/* ── RESPONSIVE ── */
 @media(max-width:380px){.team-hero{font-size:22px}.stats-row{flex-wrap:wrap}.stat-box{min-width:calc(50% - 3px)}.info-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}}
 @media(min-width:600px){.auth-card,.create-form,.profile-form{max-width:480px;margin-left:auto;margin-right:auto}.detail-cards{max-width:580px;margin:0 auto}}
 </style>
@@ -1102,7 +1066,6 @@ body{
 
 <div id="loading-overlay"><div class="spinner"></div></div>
 
-<!-- ── AUTH ─────────────────────────────────────────────────────────────────── -->
 <div class="view" id="view-auth" style="display:flex">
   <div class="auth-logo">
     <span class="ball">⚽</span>
@@ -1128,7 +1091,6 @@ body{
   </div>
 </div>
 
-<!-- ── HOME ─────────────────────────────────────────────────────────────────── -->
 <div class="view" id="view-home">
   <div class="top-bar">
     <div class="top-bar-row">
@@ -1156,7 +1118,6 @@ body{
   </nav>
 </div>
 
-<!-- ── PROFILE ───────────────────────────────────────────────────────────────── -->
 <div class="view" id="view-profile">
   <div class="profile-header">
     <button class="btn-back" onclick="showView('home')">← Voltar</button>
@@ -1167,7 +1128,6 @@ body{
   </div>
 </div>
 
-<!-- ── CREATE ────────────────────────────────────────────────────────────────── -->
 <div class="view" id="view-create">
   <div class="view-header">
     <button class="btn-back" onclick="showView('home')">←</button>
@@ -1191,7 +1151,6 @@ body{
   </div>
 </div>
 
-<!-- ── BOLÃO DETAIL ──────────────────────────────────────────────────────────── -->
 <div class="view" id="view-bolao-detail">
   <div id="bolao-detail-content">
     <div class="loading-dots" style="padding:60px"><span></span><span></span><span></span></div>
