@@ -14,6 +14,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, arrayUnion, onSnapshot, query, where, serverTimestamp, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+// CONFIGURAÇÃO DE HOMOLOGAÇÃO RESTAURADA
 const firebaseConfig = {
   apiKey: "AIzaSyDIg_DxCxbl0nfr4oOpzsT07DGqL6phdFQ",
   authDomain: "homolboloadaalegria.firebaseapp.com",
@@ -23,7 +24,6 @@ const firebaseConfig = {
   appId: "1:37803285375:web:cfb0ba26b8bc33a3c0d84a",
   measurementId: "G-C2QY6V32FG"
 };
-
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -105,7 +105,6 @@ window.showView = view => {
   const el = $('view-'+view);
   if(el) el.style.display='block';
   if(view==='home') loadUserBoloes();
-  if(view==='profile') renderProfile();
 };
 
 window.showTab = tab => {
@@ -115,7 +114,7 @@ window.showTab = tab => {
   $('panel-'+tab).style.display='block';
 };
 
-// ── PROFILE MODAL CONTROLS (INLINE) ─────────────────────────────────────────
+// ── PROFILE MODAL CONTROLS ──────────────────────────────────────────────────
 window.abrirModalPerfil = async () => {
   if(!currentUser) return;
   loading(true);
@@ -145,7 +144,7 @@ window.saveProfile = async () => {
   loading(true);
   try {
     await updateProfile(currentUser, { displayName: name });
-    await setDoc(doc(doc(db,'users',currentUser.uid)), { name, email:currentUser.email, phone, pixRecebimento:pix, updatedAt:serverTimestamp() }, { merge:true });
+    await setDoc(doc(db,'users',currentUser.uid), { name, email:currentUser.email, phone, pixRecebimento:pix, updatedAt:serverTimestamp() }, { merge:true });
     userProfile = { ...userProfile, name, phone, pixRecebimento:pix };
     updateTopBar();
     toast('Perfil salvo com sucesso! ✅','success');
@@ -160,6 +159,8 @@ window.createBolao = async () => {
   const date=$('b-date').value, time=$('b-time').value;
   const valor=parseFloat($('b-valor').value), pix=$('b-pix').value.trim();
   const emailsRaw=$('b-emails').value.trim();
+  const bloquearLancesIguais = $('b-bloquear-iguais') ? $('b-bloquear-iguais').checked : false;
+  
   if(!name||!team1||!team2||!date||!time||!valor||!pix){ toast('Preencha todos os campos obrigatórios','error'); return; }
   loading(true);
   try {
@@ -168,6 +169,7 @@ window.createBolao = async () => {
     await addDoc(collection(db,'boloes'), {
       name, team1, team2, gameDateTime: gameDateTime.toISOString(),
       valorLance: valor, pixKey: pix, invitedEmails: emails,
+      bloquearLancesIguais,
       creatorId: currentUser.uid,
       creatorName: currentUser.displayName||currentUser.email,
       adminId: currentUser.uid,
@@ -177,6 +179,7 @@ window.createBolao = async () => {
     });
     toast('Bolão criado! 🎉','success');
     ['b-name','b-team1','b-team2','b-date','b-time','b-valor','b-pix','b-emails'].forEach(id=>{ if($(id)) $(id).value=''; });
+    if($('b-bloquear-iguais')) $('b-bloquear-iguais').checked = false;
     showView('home');
   } catch(e) { toast('Erro ao criar: '+e.message,'error'); } finally { loading(false); }
 };
@@ -249,10 +252,10 @@ window.openBolao = async bolaoId => {
   loading(true);
   try {
     if(unsubscribeBolao) unsubscribeBolao();
-    unsubscribeBolao=onSnapshot(doc(db,'boloes',bolaoId), snap=>{
+    unsubscribeBolao=onSnapshot(doc(db,'boloes',bolaoId), async snap=>{
       if(!snap.exists()){ toast('Bolão não encontrado','error'); return; }
       currentBolao={id:snap.id,...snap.data()};
-      renderBolaoDetail(currentBolao);
+      await renderBolaoDetail(currentBolao);
     });
     showView('bolao-detail');
   } catch(e){ toast('Erro ao abrir bolão','error'); } finally{ loading(false); }
@@ -269,7 +272,7 @@ window.toggleCard = id => {
 };
 
 // ── RENDER BOLÃO DETAIL ───────────────────────────────────────────────────────
-function renderBolaoDetail(b) {
+async function renderBolaoDetail(b) {
   const gd=new Date(b.gameDateTime);
   const now=new Date();
   const diff=gd-now;
@@ -286,7 +289,6 @@ function renderBolaoDetail(b) {
   const adminName=b.adminName||b.creatorName||'—';
   const deadline=new Date(gd.getTime()-30*60*1000);
   const apostaEncerrada=now>=deadline||b.status!=='open';
-  const canBet=!apostaEncerrada&&canSeeContent;
   const link=`${location.origin}${location.pathname}?bolao=${b.id}`;
 
   let countdown=diff>0
@@ -296,7 +298,6 @@ function renderBolaoDetail(b) {
   const el=$('bolao-detail-content');
   if(!el) return;
 
-  // ── JOIN SCREEN ────────────────────────────────────────────────────────────
   if(!canSeeContent){
     el.innerHTML=`
     <div class="detail-header">
@@ -316,6 +317,7 @@ function renderBolaoDetail(b) {
       <div class="join-title">Você foi convidado!</div>
       <div class="join-desc">Participe do <strong>${b.name}</strong> e faça sua aposta no placar.</div>
       <div class="join-info"><span>💰 R$ ${b.valorLance?.toFixed(2)} por lance</span><span>👑 ${b.creatorName}</span></div>
+      ${b.bloquearLancesIguais?`<div class="aviso-lances-iguais-regra">⛔ O bolão não aceita lances iguais para apostas pagas.</div>`:''}
       <div class="aviso-comprovante">⚠️ Somente apostas <strong>com comprovante</strong> participam do prêmio.</div>
       <button class="btn-primary btn-join" onclick="participarBolao('${b.id}')">🎟️ Participar do Bolão</button>
     </div>`;
@@ -323,10 +325,9 @@ function renderBolaoDetail(b) {
     return;
   }
 
-  // ── MAIN SCREEN ───────────────────────────────────────────────────────────
   const lancesPublicosHTML = renderLancesPublicos(b);
 
-  // Card: Informações do bolão (Minimizado por Padrão 'none')
+  // Card: Informações do bolão (Minimizado por Padrão)
   const infoCardHTML = `
   <div class="collapsible-card" id="card-info">
     <button class="card-header" onclick="toggleCard('info')">
@@ -342,6 +343,9 @@ function renderBolaoDetail(b) {
         </div>
         ${isCreator?`<button class="btn-trocar-admin" onclick="abrirModalAdmin('${b.id}')">Trocar</button>`:''}
       </div>
+      
+      ${b.bloquearLancesIguais?`<div class="aviso-lances-iguais-regra" style="margin-bottom:12px;">⛔ O bolão não aceita lances iguais para apostas pagas.</div>`:''}
+
       <div class="info-grid">
         <div class="info-card">💰 Valor por lance<br><strong>R$ ${b.valorLance?.toFixed(2)}</strong></div>
         <div class="info-card">💳 PIX p/ pagamento<br><strong class="pix-key" onclick="copyPix('${b.pixKey}')">${b.pixKey} 📋</strong></div>
@@ -375,7 +379,7 @@ function renderBolaoDetail(b) {
     </div>
   </div>`;
 
-  // Subcard: Meus Lances
+  // Subcard: Meus Lances interno
   const myLancesHTML = myLances.length>0?`
   <div class="my-lances-list" style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 12px; margin-top: 15px;">
     <div class="my-lances-title" style="font-family:'Bebas Neue'; font-size:18px; color: var(--gold); margin-bottom: 10px;">📋 Meus Lances</div>
@@ -403,7 +407,7 @@ function renderBolaoDetail(b) {
     ${myLances.length&&myLances.every(l=>l.concluido)?'<div class="concluido-msg">✅ Suas apostas estão concluídas!</div>':''}
   </div>`:'';
 
-  // Card unificado: Lances (Minimizado por Padrão 'none')
+  // Card unificado: Lances (Minimizado por Padrão)
   const lanceCardHTML=`
   <div class="collapsible-card" id="card-lances">
     <button class="card-header" onclick="toggleCard('lances')">
@@ -433,7 +437,7 @@ function renderBolaoDetail(b) {
     </div>
   </div>`;
 
-  const adminPanelHTML=isAdmin?renderPainelAdmin(b):'';
+  const adminPanelHTML=isAdmin?await renderPainelAdmin(b):'';
   const resultadosHTML=(b.status==='closed'||b.status==='finished')?renderResultados(b):'';
 
   const informarResultadoHTML=isAdmin&&b.status==='closed'?`
@@ -469,11 +473,11 @@ function renderBolaoDetail(b) {
     <div class="team-hero">${b.team2}</div>
   </div>
   <div class="detail-cards">
+    ${resultadosHTML}
     ${lancesPublicosHTML}
     ${infoCardHTML}
     ${lanceCardHTML}
     ${adminPanelHTML}
-    ${resultadosHTML}
     ${informarResultadoHTML}
   </div>`;
 
@@ -506,13 +510,37 @@ function renderLancesPublicos(b) {
 }
 
 // ── RENDER PAINEL ADMIN ───────────────────────────────────────────────────────
-function renderPainelAdmin(b) {
+async function renderPainelAdmin(b) {
   const lances=b.lances||[];
   const comComp=lances.filter(l=>l.pago&&l.comprovante);
   const semComp=lances.filter(l=>l.pago&&!l.comprovante);
   const pendentes=lances.filter(l=>!l.pago);
   const ganhadores=b.ganhadores||[];
-  const participantesMap=Object.fromEntries((b.participants||[]).map(p=>[p.userId,p]));
+  const participantesMap = Object.fromEntries((b.participants||[]).map(p=>[p.userId,p]));
+  
+  let ganhadoresHTML = '';
+  if(ganhadores.length > 0) {
+    const cardsGanhadores = await Promise.all(ganhadores.map(async g => {
+      let pixGanhador = '—';
+      try {
+        const uSnap = await getDoc(doc(db, 'users', g.userId));
+        if(uSnap.exists()) pixGanhador = uSnap.data().pixRecebimento || '—';
+      } catch(e) {
+        pixGanhador = participantesMap[g.userId]?.pixRecebimento || '—';
+      }
+      return `<div class="ganhador-admin-card">
+        <div class="ganhador-admin-nome">🏆 ${g.name}</div>
+        <div class="ganhador-admin-valor">R$ ${g.valor?.toFixed(2)}</div>
+        <div class="ganhador-admin-pix">🔑 PIX DO GANHADOR: <strong class="pix-key" onclick="copyPix('${pixGanhador}')">${pixGanhador} 📋</strong></div>
+      </div>`;
+    }));
+    ganhadoresHTML = `
+    <div class="admin-ganhadores">
+      <div class="admin-sub">🏆 Ganhadores — Transferir valores</div>
+      ${cardsGanhadores.join('')}
+    </div>`;
+  }
+
   return `
   <div class="collapsible-card card-admin" id="card-admin">
     <button class="card-header" onclick="toggleCard('admin')">
@@ -520,19 +548,7 @@ function renderPainelAdmin(b) {
       <span class="card-toggle-icon" id="card-icon-admin">▾</span>
     </button>
     <div class="card-body" id="card-body-admin">
-      ${ganhadores.length?`
-      <div class="admin-ganhadores">
-        <div class="admin-sub">🏆 Ganhadores — Transferir valores</div>
-        ${ganhadores.map(g=>{
-          const part=participantesMap[g.userId];
-          const pix=part?.pixRecebimento||'—';
-          return `<div class="ganhador-admin-card">
-            <div class="ganhador-admin-nome">${g.name}</div>
-            <div class="ganhador-admin-valor">R$ ${g.valor?.toFixed(2)}</div>
-            <div class="ganhador-admin-pix">PIX: <strong class="pix-key" onclick="copyPix('${pix}')">${pix} 📋</strong></div>
-          </div>`;
-        }).join('')}
-      </div>`:''}
+      ${ganhadoresHTML}
       <div class="admin-sub">📎 Comprovantes (${comComp.length})</div>
       ${!comComp.length?'<p class="empty-p">Nenhum comprovante ainda.</p>':
         comComp.map(l=>{
@@ -559,7 +575,31 @@ function renderPainelAdmin(b) {
 function renderResultados(b) {
   const pagosComp=(b.lances||[]).filter(l=>l.pago&&l.comprovante);
   const total=pagosComp.length*(b.valorLance||0)+(b.acumulado||0);
+  
+  let bannerGanhadorDestaque = '';
+  if(b.status==='finished' && b.ganhadores) {
+    const souGanhador = b.ganhadores.some(g => g.userId === currentUser.uid);
+    if(souGanhador) {
+      const temPix = userProfile && userProfile.pixRecebimento && userProfile.pixRecebimento.trim() !== '';
+      if(temPix) {
+        bannerGanhadorDestaque = `
+        <div class="banner-ganhador-sucesso">
+          🎉 Parabéns! Você é o ganhador do bolão!
+        </div>`;
+      } else {
+        bannerGanhadorDestaque = `
+        <div class="banner-ganhador-alerta">
+          🎉 Parabéns! Você é o ganhador do bolão!<br>
+          <span style="font-weight:800; text-transform:uppercase; display:block; margin-top:5px;">⚠️ Campo obrigatório para receber o prêmio:</span>
+          Identificamos que você não informou sua chave PIX para recebimento. Por favor, acesse seu perfil agora para cadastrar.
+          <button class="btn-primary" style="margin-top:10px; padding:8px 12px; font-size:12px;" onclick="abrirModalPerfil()">👤 Configurar Meu PIX Agora</button>
+        </div>`;
+      }
+    }
+  }
+
   if(b.status==='finished'&&b.resultado) return `
+  ${bannerGanhadorDestaque}
   <div class="collapsible-card card-resultado-final" id="card-res-final">
     <button class="card-header" onclick="toggleCard('res-final')">
       <span>🏆 Resultado Final</span>
@@ -575,6 +615,7 @@ function renderResultados(b) {
       ${pagosComp.map(l=>`<div class="lance-resumo">${l.userName}: ${b.team1} ${l.gol1}×${l.gol2} ${b.team2}</div>`).join('')}
     </div>
   </div>`;
+  
   if(b.status==='closed') return `
   <div class="collapsible-card card-fechado" id="card-fechado">
     <button class="card-header" onclick="toggleCard('fechado')">
@@ -597,6 +638,19 @@ window.addLance = async () => {
   const gd=new Date(currentBolao.gameDateTime);
   const deadline=new Date(gd.getTime()-30*60*1000);
   if(new Date()>=deadline||currentBolao.status!=='open'){ toast('Apostas encerradas','error'); return; }
+  
+  // NOVA REGRA: VALIDAÇÃO DE LANCES IGUAIS (JA FEITOS E PAGOS)
+  if(currentBolao.bloquearLancesIguais) {
+    const lancesAtuais = currentBolao.lances || [];
+    const lanceDuplicadoPago = lancesAtuais.some(l => 
+      l.pago && parseInt(l.gol1) === g1 && parseInt(l.gol2) === g2
+    );
+    if(lanceDuplicadoPago) {
+      toast('Esse lance ja foi feito e pago. Infomre lance diferente.','error');
+      return;
+    }
+  }
+
   loading(true);
   try {
     const lanceId=Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -620,7 +674,22 @@ window.confirmarPagamento = async (bolaoId, lanceId) => {
   loading(true);
   try {
     const snap=await getDoc(doc(db,'boloes',bolaoId));
-    const lances=(snap.data().lances||[]).map(l=>l.id===lanceId?{...l,pago:true}:l);
+    const bData = snap.data();
+    const lanceAtual = (bData.lances || []).find(l => l.id === lanceId);
+
+    // Re-valida lances iguais antes de marcar como pago administrativamente se aplicável
+    if(bData.bloquearLancesIguais && lanceAtual) {
+      const jaExistePago = (bData.lances || []).some(l => 
+        l.id !== lanceId && l.pago && parseInt(l.gol1) === parseInt(lanceAtual.gol1) && parseInt(l.gol2) === parseInt(lanceAtual.gol2)
+      );
+      if(jaExistePago) {
+        toast('Não foi possível confirmar. Esse lance já foi feito e pago por outro participante.','error');
+        loading(false);
+        return;
+      }
+    }
+
+    const lances=(bData.lances||[]).map(l=>l.id===lanceId?{...l,pago:true}:l);
     await updateDoc(doc(db,'boloes',bolaoId),{lances});
     toast('Pagamento confirmado! ✅','success');
   } catch(e){ toast('Erro','error'); } finally{ loading(false); }
@@ -636,11 +705,28 @@ window.uploadComprovante = async (bolaoId, lanceId, input) => {
     }
   }
   if(file.size>5*1024*1024){ toast('Arquivo muito grande (máx 5MB)','error'); return; }
+  
   loading(true);
   try {
+    const snapVerify=await getDoc(doc(db,'boloes',bolaoId));
+    const bDataVerify = snapVerify.data();
+    const lanceAlvo = (bDataVerify.lances || []).find(l => l.id === lanceId);
+
+    // Re-valida lances iguais antes do upload do comprovante
+    if(bDataVerify.bloquearLancesIguais && lanceAlvo) {
+      const jaExistePago = (bDataVerify.lances || []).some(l => 
+        l.id !== lanceId && l.pago && parseInt(l.gol1) === parseInt(lanceAlvo.gol1) && parseInt(l.gol2) === parseInt(lanceAlvo.gol2)
+      );
+      if(jaExistePago) {
+        toast('Esse lance ja foi feito e pago. Infomre lance diferente.','error');
+        input.value = '';
+        loading(false);
+        return;
+      }
+    }
+
     const base64=await compressImage(file,800,0.65);
-    const snap=await getDoc(doc(db,'boloes',bolaoId));
-    const lances=(snap.data().lances||[]).map(l=>l.id===lanceId?{...l,comprovante:base64,pago:true}:l);
+    const lances=(bDataVerify.lances||[]).map(l=>l.id===lanceId?{...l,comprovante:base64,pago:true}:l);
     await updateDoc(doc(db,'boloes',bolaoId),{lances});
     toast('Comprovante enviado e pagamento confirmado! ✅','success');
   } catch(e){ toast('Erro: '+e.message,'error'); } finally{ loading(false); }
@@ -755,7 +841,7 @@ window.definirAdmin = async (bolaoId, userId, userName) => {
   loading(true);
   try {
     await updateDoc(doc(db,'boloes',bolaoId),{adminId:userId,adminName:userName.replace(' (Criador)','')});
-    toast('Administrador atualizado! 💼','success');
+    toast('Administrador updated! 💼','success');
   } catch(e){ toast('Erro ao alterar administrador','error'); } finally{ loading(false); }
 };
 
@@ -828,7 +914,6 @@ function firebaseError(code) {
   }
 }
 
-// Check deep link
 window.addEventListener('DOMContentLoaded', () => {
   const p = new URLSearchParams(window.location.search);
   const bId = p.get('bolao');
@@ -857,7 +942,6 @@ window.addEventListener('DOMContentLoaded', () => {
 * { box-sizing: border-box; margin:0; padding:0; font-family: 'Segoe UI', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
 body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 100vh; overflow-x:hidden; }
 
-/* Top Bar Fixo */
 .top-bar { position: sticky; top:0; background: var(--green-primary); border-bottom: 2px solid var(--gold); padding: 12px 16px; display:flex; justify-content:space-between; align-items:center; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
 .brand { font-family: 'Bebas Neue', 'Arial Black', sans-serif; font-size: 22px; color: var(--gold); display:flex; align-items:center; gap:6px; letter-spacing: 0.5px; }
 .user-menu { display:flex; align-items:center; gap:12px; }
@@ -866,33 +950,27 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .btn-perfil-top { background: var(--gold); border: none; color: #0a190f; padding: 5px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; font-weight: 700; transition: 0.2s; }
 .btn-perfil-top:hover { background: var(--gold-hover); }
 
-/* Main layout container */
 .main-container { width:100%; max-width: 500px; margin: 0 auto; padding: 16px; padding-bottom: 40px; }
 .view { display:none; animation: fadeIn 0.25s ease-out; }
 @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
 
-/* Formulários & Grupos */
 .form-group { margin-bottom: 14px; width: 100%; }
 .form-group label { display:block; font-size:12px; font-weight:700; color: var(--gold); margin-bottom: 5px; text-transform: uppercase; letter-spacing:0.3px; }
 .form-group input, .form-group textarea, .form-group select { width:100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color:var(--white); font-size:14px; outline:none; transition: all 0.2s; }
 .form-group input:focus, .form-group textarea:focus { border-color: var(--gold); background: rgba(255,255,255,0.08); }
 .form-row { display:flex; gap:12px; }
 
-/* Botões */
 .btn-primary { width:100%; background: var(--gold); color:#0a190f; border:none; padding: 14px; border-radius:12px; font-weight:700; font-size:15px; cursor:pointer; box-shadow: 0 4px 12px rgba(241,196,15,0.2); transition: all 0.15s active; }
 .btn-primary:active { transform: scale(0.98); opacity:0.9; }
 
-/* Auth Area */
 .auth-box { background: var(--panel-dark); border-radius: 20px; padding: 24px; border: 1px solid var(--border); margin-top: 20px; box-shadow:0 8px 32px rgba(0,0,0,0.3); }
 .auth-tabs { display:flex; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .auth-tab { flex:1; text-align:center; padding: 12px; color: var(--gray-400); font-weight:700; font-size:14px; cursor:pointer; border-bottom: 2px solid transparent; }
 .auth-tab.active { color: var(--gold); border-color: var(--gold); }
 
-/* Home Dashboard */
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size:24px; color: var(--white); margin: 18px 0 10px 0; letter-spacing:0.5px; display:flex; align-items:center; justify-content:space-between; }
 .btn-action-main { background: var(--green-light); border: 1px solid rgba(255,255,255,0.1); color: var(--gold); border-radius: 12px; padding: 14px; text-align:center; font-weight:700; font-size:14px; cursor:pointer; margin-bottom: 16px; display:block; text-decoration:none; width:100%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 
-/* Cards List */
 .bolao-card { background: var(--panel-dark); border-radius:16px; padding:16px; margin-bottom:12px; border: 1px solid var(--border); cursor:pointer; position:relative; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
 .bolao-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .bolao-card-name { font-size:15px; font-weight:700; color:var(--white); max-width: 70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -911,7 +989,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .stat-mini.pot span { color: var(--gold); }
 .creator-badge { position:absolute; bottom:0; right:16px; background:rgba(241,196,15,0.06); border:1px solid rgba(241,196,15,0.15); border-bottom:none; border-radius:6px 6px 0 0; padding:2px 6px; font-size:8px; font-weight:800; color:var(--gold); text-transform:uppercase; }
 
-/* Detail Screen & Hero */
 .detail-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:8px; }
 .btn-back { background:rgba(255,255,255,0.05); border:1px solid var(--border); color:var(--white); padding:8px 12px; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer; }
 .detail-title { font-family: 'Bebas Neue', sans-serif; font-size:22px; color:var(--white); flex:1; margin-left:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -922,7 +999,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .vs-big { font-size:11px; font-weight:800; background:var(--gold); color:#0a190f; padding:3px 8px; border-radius:6px; font-style:italic; }
 .game-date { font-size:10px; color:var(--gray-400); font-weight:600; text-align:center; margin-top:2px; }
 
-/* Collapsible New Structured Cards */
 .collapsible-card { background:var(--panel-dark); border-radius:16px; border:1px solid var(--border); margin-bottom:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
 .card-header { width:100%; background:none; border:none; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; color:var(--white); font-weight:700; font-size:14px; cursor:pointer; outline:none; text-align:left; }
 .card-header-right { display:flex; align-items:center; gap:8px; }
@@ -930,7 +1006,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .card-body { padding:0 16px 16px 16px; border-top:1px solid rgba(255,255,255,0.03); padding-top:14px; }
 .badge-count { background: rgba(255,255,255,0.08); padding:2px 6px; border-radius:10px; font-size:10px; font-weight:700; color:var(--gray-400); }
 
-/* Info Card Elements */
 .admin-banner { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:10px; margin-bottom:12px; }
 .admin-icon { font-size:16px; }
 .admin-text { flex:1; }
@@ -959,7 +1034,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .btn-copy { background:var(--green-light); border:1px solid rgba(255,255,255,0.1); color:var(--white); padding:6px 12px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; }
 .invited-list { font-size:10px; color:var(--gray-400); margin-top:6px; }
 
-/* Lances Inner Elements */
 .score-input-row { display:flex; align-items:center; justify-content:center; gap:10px; margin: 10px 0 14px 0; }
 .score-team { font-family:'Bebas Neue',sans-serif; font-size:18px; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; text-align:right; }
 .score-team:last-child { text-align:left; }
@@ -969,7 +1043,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .deadline-info { font-size:10px; color:var(--gray-400); text-align:center; margin-bottom:10px; font-weight:600; }
 .apostaEncerrada { background:rgba(231,76,60,0.08); border:1px solid rgba(231,76,60,0.15); color:#e74c3c; border-radius:10px; padding:12px; text-align:center; font-size:12px; font-weight:700; }
 
-/* My Lances List Inner */
 .my-lances-list { margin-top:14px; }
 .my-lance-card { background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; }
 .my-lance-card.pago { border-left:4px solid #2ecc71; }
@@ -986,7 +1059,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .btn-concluir { width:100%; background:var(--white); color:#0a190f; border:none; border-radius:10px; padding:10px; font-weight:700; font-size:12px; cursor:pointer; margin-top:8px; }
 .concluido-msg { font-size:11px; font-weight:700; color:#2ecc71; text-align:center; margin-top:8px; }
 
-/* Public Lances Rows */
 .aviso-mini { font-size:10px; color:var(--gray-400); margin-bottom:8px; text-align:center; }
 .lance-pub-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
 .lance-pub-row:last-child { border:none; }
@@ -995,7 +1067,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .lance-pub-placar strong { color:var(--white); font-size:13px; margin:0 4px; }
 .badge-comp-ok { font-size:10px; }
 
-/* Admin Area Inner Cards */
 .card-admin { border-color: rgba(241,196,15,0.25); }
 .admin-sub { font-size:11px; font-weight:800; color:var(--gold); text-transform:uppercase; margin-bottom:8px; margin-top:4px; letter-spacing:0.3px; }
 .comp-admin-card { background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; }
@@ -1009,9 +1080,8 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .ganhador-admin-card { background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:6px; }
 .ganhador-admin-nome { font-size:12px; font-weight:700; color:var(--white); }
 .ganhador-admin-valor { font-size:14px; font-weight:800; color:var(--gold); margin:2px 0; }
-.ganhador-admin-pix { font-size:10px; color:var(--gray-400); }
+.ganhador-admin-pix { font-size:10px; color:var(--gray-400); border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; margin-top:4px; }
 
-/* Results Inner View */
 .placar-final { font-size:20px; font-family:'Bebas Neue',sans-serif; text-align:center; color:var(--white); margin:6px 0 12px 0; letter-spacing:0.5px; }
 .placar-final span { background:var(--gold); color:#0a190f; padding:2px 8px; border-radius:6px; margin:0 4px; font-size:22px; }
 .ganhadores-pub { background:rgba(46,204,113,0.08); border:1px solid rgba(46,204,113,0.2); border-radius:10px; padding:10px; font-size:12px; font-weight:700; color:#2ecc71; }
@@ -1019,7 +1089,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .acumulou { background:rgba(231,76,60,0.08); border:1px solid rgba(231,76,60,0.15); color:#e74c3c; border-radius:10px; padding:10px; text-align:center; font-size:12px; font-weight:700; }
 .lance-resumo { font-size:11px; color:var(--gray-400); padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.02); }
 
-/* Join Screen Block */
 .join-card { background:var(--panel-dark); border-radius:16px; border:1px solid var(--border); padding:24px 16px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
 .join-icon { font-size:40px; margin-bottom:10px; }
 .join-title { font-family:'Bebas Neue',sans-serif; font-size:24px; color:var(--gold); margin-bottom:6px; }
@@ -1027,7 +1096,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .join-info { display:flex; justify-content:center; gap:16px; font-size:12px; font-weight:700; color:var(--white); margin-bottom:14px; background:rgba(0,0,0,0.15); padding:8px; border-radius:10px; }
 .aviso-comprovante { font-size:11px; color:var(--gray-400); margin-bottom:16px; }
 
-/* Empty States & Loading */
 .empty-state { text-align:center; padding:40px 16px; color:var(--gray-400); }
 .empty-icon { font-size:36px; display:block; margin-bottom:10px; opacity:0.5; }
 .empty-state p { font-size:13px; line-height:1.4; }
@@ -1043,7 +1111,6 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .toast-error { border-left:4px solid #e74c3c; color:#ffffff; }
 .toast-info { border-left:4px solid var(--gold); color:#ffffff; }
 
-/* ESTILOS NOVOS PARA O MODAL DE PERFIL */
 .perfil-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9998; display: none; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.2s ease-out; }
 .perfil-modal-box { background: var(--panel-dark); border: 2px solid var(--gold); border-radius: 20px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
 .perfil-modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 24px; color: var(--gold); margin-bottom: 4px; }
@@ -1052,6 +1119,14 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
 .perfil-modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .btn-perfil-cancel { flex: 1; background: none; border: 1px solid rgba(255,255,255,0.15); color: var(--gray-400); padding: 12px; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; }
 @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* NOVOS ESTILOS REGRAS ADICIONADAS */
+.aviso-lances-iguais-regra { background: rgba(241,196,15,0.06); border: 1px solid rgba(241,196,15,0.25); color: #f1c40f; border-radius: 10px; padding: 10px; font-size: 11px; text-align: center; font-weight: 600; width:100%; }
+.banner-ganhador-sucesso { background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #ffffff; padding: 16px; border-radius: 16px; font-family: 'Bebas Neue', sans-serif; font-size: 22px; text-align: center; letter-spacing: 0.5px; margin-bottom: 14px; box-shadow: 0 4px 15px rgba(46,204,113,0.2); animation: fadeIn 0.3s ease-out; }
+.banner-ganhador-alerta { background: rgba(231,76,60,0.12); border: 2px solid #e74c3c; color: #ffffff; padding: 16px; border-radius: 16px; font-size: 13px; text-align: center; line-height: 1.5; margin-bottom: 14px; box-shadow: 0 4px 15px rgba(231,76,60,0.2); animation: fadeIn 0.3s ease-out; }
+.toggle-container { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px; }
+.toggle-container input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; accent-color: var(--gold); }
+.toggle-container label { font-size: 12px; color: var(--white); font-weight: 600; cursor: pointer; }
 </style>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1151,6 +1226,12 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
       </div>
       <div class="form-group"><label>Valor por Lance (R$) *</label><input type="number" id="b-valor" placeholder="10.00" step="0.01" min="0.01"></div>
       <div class="form-group"><label>Chave PIX para receber pagamentos *</label><input type="text" id="b-pix" placeholder="CPF, e-mail, telefone ou chave aleatória"></div>
+      
+      <div class="toggle-container">
+        <input type="checkbox" id="b-bloquear-iguais">
+        <label for="b-bloquear-iguais">Bloquear lances iguais (Não aceita lances iguais para apostas pagas)</label>
+      </div>
+
       <div class="form-group"><label>E-mails dos convidados (separados por vírgula)</label><textarea id="b-emails" placeholder="amigo@email.com, outro@email.com"></textarea></div>
       <button class="btn-primary" onclick="createBolao()">🎉 Criar Bolão</button>
       <br><br>
