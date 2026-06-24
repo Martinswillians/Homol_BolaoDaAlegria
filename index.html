@@ -14,7 +14,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, arrayUnion, onSnapshot, query, where, serverTimestamp, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// CONFIGURAÇÃO DE HOMOLOGAÇÃO RESTAURADA
 const firebaseConfig = {
   apiKey: "AIzaSyDIg_DxCxbl0nfr4oOpzsT07DGqL6phdFQ",
   authDomain: "homolboloadaalegria.firebaseapp.com",
@@ -46,6 +45,18 @@ const toast = (msg, type='info') => {
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 3200);
 };
 const loading = show => { const el=$('loading-overlay'); if(el) el.style.display=show?'flex':'none'; };
+
+const firebaseError = code => {
+  switch(code) {
+    case 'auth/email-already-in-use': return 'Este e-mail já está em uso.';
+    case 'auth/weak-password': return 'A senha precisa ter pelo menos 6 caracteres.';
+    case 'auth/invalid-email': return 'E-mail inválido.';
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential': return 'E-mail ou senha incorretos.';
+    default: return 'Ocorreu um erro. Tente novamente.';
+  }
+};
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
@@ -105,6 +116,7 @@ window.showView = view => {
   const el = $('view-'+view);
   if(el) el.style.display='block';
   if(view==='home') loadUserBoloes();
+  if(view==='profile') renderProfile();
 };
 
 window.showTab = tab => {
@@ -114,26 +126,28 @@ window.showTab = tab => {
   $('panel-'+tab).style.display='block';
 };
 
-// ── PROFILE MODAL CONTROLS ──────────────────────────────────────────────────
-window.abrirModalPerfil = async () => {
+// ── PROFILE ───────────────────────────────────────────────────────────────────
+window.renderProfile = async () => {
   if(!currentUser) return;
-  loading(true);
   try {
     const snap = await getDoc(doc(db,'users',currentUser.uid));
     userProfile = snap.exists() ? snap.data() : {};
   } catch(e) {}
-  loading(false);
-
-  $('p-name').value = userProfile.name || currentUser.displayName || '';
-  $('p-email').value = currentUser.email || '';
-  $('p-phone').value = userProfile.phone || '';
-  $('p-pix').value = userProfile.pixRecebimento || '';
-  
-  $('modal-perfil-usuario').style.display = 'flex';
-};
-
-window.fecharModalPerfil = () => {
-  $('modal-perfil-usuario').style.display = 'none';
+  const el = $('profile-content');
+  if(!el) return;
+  el.innerHTML = `
+  <div class="profile-avatar">${(currentUser.displayName||'U')[0].toUpperCase()}</div>
+  <div class="form-group"><label>Nome completo</label>
+    <input type="text" id="p-name" value="${userProfile.name||currentUser.displayName||''}"></div>
+  <div class="form-group"><label>E-mail</label>
+    <input type="email" id="p-email" value="${currentUser.email}" disabled style="opacity:.5"></div>
+  <div class="form-group"><label>Telefone (opcional)</label>
+    <input type="tel" id="p-phone" placeholder="(11) 99999-9999" value="${userProfile.phone||''}"></div>
+  <div class="form-group"><label>🏦 Chave PIX para receber prêmios</label>
+    <input type="text" id="p-pix" placeholder="CPF, e-mail, telefone ou chave aleatória" value="${userProfile.pixRecebimento||''}">
+    <div class="field-hint">Exibida ao administrador financeiro quando você ganhar.</div>
+  </div>
+  <button class="btn-primary" onclick="saveProfile()">💾 Salvar Perfil</button>`;
 };
 
 window.saveProfile = async () => {
@@ -147,10 +161,8 @@ window.saveProfile = async () => {
     await setDoc(doc(db,'users',currentUser.uid), { name, email:currentUser.email, phone, pixRecebimento:pix, updatedAt:serverTimestamp() }, { merge:true });
     userProfile = { ...userProfile, name, phone, pixRecebimento:pix };
     updateTopBar();
-    toast('Perfil salvo com sucesso! ✅','success');
-    fecharModalPerfil();
-    if(currentBolao) renderBolaoDetail(currentBolao);
-  } catch(e) { toast('Erro ao salvar perfil','error'); } finally { loading(false); }
+    toast('Perfil salvo! ✅','success');
+  } catch(e) { toast('Erro ao salvar','error'); } finally { loading(false); }
 };
 
 // ── BOLÃO CRUD ────────────────────────────────────────────────────────────────
@@ -159,8 +171,6 @@ window.createBolao = async () => {
   const date=$('b-date').value, time=$('b-time').value;
   const valor=parseFloat($('b-valor').value), pix=$('b-pix').value.trim();
   const emailsRaw=$('b-emails').value.trim();
-  const bloquearLancesIguais = $('b-bloquear-iguais') ? $('b-bloquear-iguais').checked : false;
-  
   if(!name||!team1||!team2||!date||!time||!valor||!pix){ toast('Preencha todos os campos obrigatórios','error'); return; }
   loading(true);
   try {
@@ -169,7 +179,6 @@ window.createBolao = async () => {
     await addDoc(collection(db,'boloes'), {
       name, team1, team2, gameDateTime: gameDateTime.toISOString(),
       valorLance: valor, pixKey: pix, invitedEmails: emails,
-      bloquearLancesIguais,
       creatorId: currentUser.uid,
       creatorName: currentUser.displayName||currentUser.email,
       adminId: currentUser.uid,
@@ -179,7 +188,6 @@ window.createBolao = async () => {
     });
     toast('Bolão criado! 🎉','success');
     ['b-name','b-team1','b-team2','b-date','b-time','b-valor','b-pix','b-emails'].forEach(id=>{ if($(id)) $(id).value=''; });
-    if($('b-bloquear-iguais')) $('b-bloquear-iguais').checked = false;
     showView('home');
   } catch(e) { toast('Erro ao criar: '+e.message,'error'); } finally { loading(false); }
 };
@@ -252,10 +260,10 @@ window.openBolao = async bolaoId => {
   loading(true);
   try {
     if(unsubscribeBolao) unsubscribeBolao();
-    unsubscribeBolao=onSnapshot(doc(db,'boloes',bolaoId), async snap=>{
+    unsubscribeBolao=onSnapshot(doc(db,'boloes',bolaoId), snap=>{
       if(!snap.exists()){ toast('Bolão não encontrado','error'); return; }
       currentBolao={id:snap.id,...snap.data()};
-      await renderBolaoDetail(currentBolao);
+      renderBolaoDetail(currentBolao);
     });
     showView('bolao-detail');
   } catch(e){ toast('Erro ao abrir bolão','error'); } finally{ loading(false); }
@@ -271,13 +279,43 @@ window.toggleCard = id => {
   if(icon) icon.textContent=open?'▸':'▾';
 };
 
+// ── COUNTDOWN ─────────────────────────────────────────────────────────────────
+let countdownInterval = null;
+function startCountdown(gd, bolaoId) {
+  if(countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    const now = new Date();
+    const diff = gd - now;
+    const deadline = new Date(gd.getTime() - 30*60*1000);
+    const el = document.querySelector('.detail-status');
+    
+    if (diff <= 0) {
+      if(el) el.textContent = '🔴 Em andamento / finalizado';
+      clearInterval(countdownInterval);
+      return;
+    }
+    
+    let text = '';
+    if (now >= deadline) {
+      text = '🔒 Apostas Encerradas (Jogo Próximo)';
+    } else {
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      text = `⏱ Encerra em: ${hours}h ${minutes}m ${seconds}s`;
+    }
+    if(el) el.textContent = text;
+  }, 1000);
+}
+
 // ── RENDER BOLÃO DETAIL ───────────────────────────────────────────────────────
-async function renderBolaoDetail(b) {
+function renderBolaoDetail(b) {
   const gd=new Date(b.gameDateTime);
   const now=new Date();
   const diff=gd-now;
   const isCreator=b.creatorId===currentUser.uid;
   const isAdmin=(b.adminId||b.creatorId)===currentUser.uid;
+  const canSeeAdminPanel=isAdmin||isCreator;
   const lances=b.lances||[];
   const isParticipant=(b.participants||[]).some(p=>p.userId===currentUser.uid);
   const hasLances=lances.some(l=>l.userId===currentUser.uid);
@@ -289,10 +327,11 @@ async function renderBolaoDetail(b) {
   const adminName=b.adminName||b.creatorName||'—';
   const deadline=new Date(gd.getTime()-30*60*1000);
   const apostaEncerrada=now>=deadline||b.status!=='open';
+  const canBet=!apostaEncerrada&&canSeeContent;
   const link=`${location.origin}${location.pathname}?bolao=${b.id}`;
 
   let countdown=diff>0
-    ?`⏱ ${Math.floor(diff/3600000)}h ${Math.floor((diff%3600000)/60000)}min ${Math.floor((diff%60000)/1000)}s`
+    ?`⏱ ${Math.floor(diff/3600000)}h ${Math.floor((diff%3600000)/60000)}min`
     :'🔴 Em andamento / finalizado';
 
   const el=$('bolao-detail-content');
@@ -317,7 +356,6 @@ async function renderBolaoDetail(b) {
       <div class="join-title">Você foi convidado!</div>
       <div class="join-desc">Participe do <strong>${b.name}</strong> e faça sua aposta no placar.</div>
       <div class="join-info"><span>💰 R$ ${b.valorLance?.toFixed(2)} por lance</span><span>👑 ${b.creatorName}</span></div>
-      ${b.bloquearLancesIguais?`<div class="aviso-lances-iguais-regra">⛔ O bolão não aceita lances iguais para apostas pagas.</div>`:''}
       <div class="aviso-comprovante">⚠️ Somente apostas <strong>com comprovante</strong> participam do prêmio.</div>
       <button class="btn-primary btn-join" onclick="participarBolao('${b.id}')">🎟️ Participar do Bolão</button>
     </div>`;
@@ -327,14 +365,13 @@ async function renderBolaoDetail(b) {
 
   const lancesPublicosHTML = renderLancesPublicos(b);
 
-  // Card: Informações do bolão (Minimizado por Padrão)
   const infoCardHTML = `
   <div class="collapsible-card" id="card-info">
     <button class="card-header" onclick="toggleCard('info')">
-      <span>🏦 Informações do Bolão</span>
-      <span class="card-toggle-icon" id="card-icon-info">▸</span>
+      <span>📋 Informações do Bolão</span>
+      <span class="card-toggle-icon" id="card-icon-info">▾</span>
     </button>
-    <div class="card-body" id="card-body-info" style="display: none;">
+    <div class="card-body" id="card-body-info">
       <div class="admin-banner">
         <span class="admin-icon">💼</span>
         <div class="admin-text">
@@ -343,9 +380,6 @@ async function renderBolaoDetail(b) {
         </div>
         ${isCreator?`<button class="btn-trocar-admin" onclick="abrirModalAdmin('${b.id}')">Trocar</button>`:''}
       </div>
-      
-      ${b.bloquearLancesIguais?`<div class="aviso-lances-iguais-regra" style="margin-bottom:12px;">⛔ O bolão não aceita lances iguais para apostas pagas.</div>`:''}
-
       <div class="info-grid">
         <div class="info-card">💰 Valor por lance<br><strong>R$ ${b.valorLance?.toFixed(2)}</strong></div>
         <div class="info-card">💳 PIX p/ pagamento<br><strong class="pix-key" onclick="copyPix('${b.pixKey}')">${b.pixKey} 📋</strong></div>
@@ -354,17 +388,15 @@ async function renderBolaoDetail(b) {
         <div class="stat-box"><span class="stat-num">${uniqueParticipants.length}</span><span class="stat-label">Apostadores</span></div>
         <div class="stat-box"><span class="stat-num">${lances.length}</span><span class="stat-label">Lances</span></div>
         <div class="stat-box"><span class="stat-num">${pagosComp.length}</span><span class="stat-label">Pagos c/ Comp.</span></div>
-        <div class="stat-box total-box"><span class="stat-num">R$${totalPago.toFixed(0)}</span><span class="stat-label">Pote Total</span></div>
+        <div class="stat-box total-box"><span class="stat-num">R$${totalPago.toFixed(0)}</span><span class="stat-label">Pot Total</span></div>
       </div>
       ${b.acumulado>0?`<div class="acumulado-banner">🏆 Acumulado anterior: R$ ${b.acumulado.toFixed(2)}</div>`:''}
       <div class="aviso-comprovante-inline">⚠️ Somente apostas <strong>com comprovante</strong> participam do prêmio.</div>
-      
-      <div class="participants-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+      <div class="participants-row">
         <div class="participants-label">👥 Participantes (${uniqueParticipants.length})</div>
         ${uniqueParticipants.length===0?'<span class="empty-p">Nenhum ainda.</span>':
           `<div class="participant-list">${uniqueParticipants.map(p=>`<span class="participant-chip">${p.name}</span>`).join('')}</div>`}
       </div>
-
       ${isCreator?`
       <div class="share-row">
         <div class="share-label">📨 Link de convite</div>
@@ -379,10 +411,9 @@ async function renderBolaoDetail(b) {
     </div>
   </div>`;
 
-  // Subcard: Meus Lances interno
   const myLancesHTML = myLances.length>0?`
-  <div class="my-lances-list" style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 12px; margin-top: 15px;">
-    <div class="my-lances-title" style="font-family:'Bebas Neue'; font-size:18px; color: var(--gold); margin-bottom: 10px;">📋 Meus Lances</div>
+  <div class="my-lances-list">
+    <div class="my-lances-title">Meus Lances</div>
     ${myLances.map(l=>`
     <div class="my-lance-card ${l.pago&&l.comprovante?'pago':l.pago?'pago-sem-comp':'pendente'}">
       <div class="lance-placar">${b.team1} ${l.gol1} × ${l.gol2} ${b.team2}</div>
@@ -399,7 +430,7 @@ async function renderBolaoDetail(b) {
       <div class="encerrado-aviso">🔒 Apostas encerradas — comprovante não aceito.</div>
       `:`
       <div class="comprovante-pago">
-        <button class="btn-ver-comp" onclick="verComprovante('${l.id}')">📄 Ver Comprovante</button>
+        <button class="btn-ver-comp" onclick="verComprovante('${l.comprovante}')">📄 Ver Comprovante</button>
       </div>`}
     </div>`).join('')}
     ${myLances.some(l=>l.pago&&l.comprovante)&&myLances.filter(l=>l.pago&&l.comprovante).some(l=>!l.concluido)?`
@@ -407,21 +438,20 @@ async function renderBolaoDetail(b) {
     ${myLances.length&&myLances.every(l=>l.concluido)?'<div class="concluido-msg">✅ Suas apostas estão concluídas!</div>':''}
   </div>`:'';
 
-  // Card unificado: Lances (Minimizado por Padrão)
+  const lancesCardOpen = canBet || myLances.length>0;
   const lanceCardHTML=`
   <div class="collapsible-card" id="card-lances">
     <button class="card-header" onclick="toggleCard('lances')">
-      <span>🎲 Lances</span>
+      <span>⚽ Lances</span>
       <div class="card-header-right">
         ${myLances.length>0?`<span class="badge-count">${myLances.length} lance${myLances.length>1?'s':''}</span>`:''}
-        <span class="card-toggle-icon" id="card-icon-lances">▸</span>
+        <span class="card-toggle-icon" id="card-icon-lances">${lancesCardOpen?'▾':'▸'}</span>
       </div>
     </button>
-    <div class="card-body" id="card-body-lances" style="display: none;">
+    <div class="card-body" id="card-body-lances" style="display:${lancesCardOpen?'block':'none'}">
       ${apostaEncerrada?`<div class="apostaEncerrada">🔒 Apostas encerradas${b.status!=='open'?' (bolão encerrado)':' (30 min antes do jogo)'}</div>`:`
-      
-      <div class="bet-subcard" style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 12px;">
-        <div class="bet-subcard-title" style="font-family:'Bebas Neue'; font-size:18px; color: var(--gold); margin-bottom: 10px;">🎯 Fazer Lance</div>
+      <div class="bet-subcard">
+        <div class="bet-subcard-title">🎯 Fazer Lance</div>
         <div class="score-input-row">
           <div class="score-team">${b.team1}</div>
           <input type="number" id="score1" min="0" max="20" placeholder="0" class="score-input">
@@ -432,15 +462,14 @@ async function renderBolaoDetail(b) {
         <div class="deadline-info">⏰ Apostas encerram 30 min antes do jogo</div>
         <button class="btn-primary" onclick="addLance()">+ Adicionar Lance — R$ ${b.valorLance?.toFixed(2)}</button>
       </div>`}
-      
       ${myLancesHTML}
     </div>
   </div>`;
 
-  const adminPanelHTML=isAdmin||isCreator?await renderPainelAdmin(b):'';
+  const adminPanelHTML=canSeeAdminPanel?renderPainelAdmin(b):'';
   const resultadosHTML=(b.status==='closed'||b.status==='finished')?renderResultados(b):'';
 
-  const informarResultadoHTML=isAdmin&&b.status==='closed'?`
+  const informarResultadoHTML=canSeeAdminPanel&&b.status==='closed'?`
   <div class="collapsible-card" id="card-resultado">
     <button class="card-header" onclick="toggleCard('resultado')">
       <span>🏆 Informar Resultado Final</span>
@@ -473,11 +502,11 @@ async function renderBolaoDetail(b) {
     <div class="team-hero">${b.team2}</div>
   </div>
   <div class="detail-cards">
-    ${resultadosHTML}
     ${lancesPublicosHTML}
     ${infoCardHTML}
     ${lanceCardHTML}
     ${adminPanelHTML}
+    ${resultadosHTML}
     ${informarResultadoHTML}
   </div>`;
 
@@ -510,107 +539,34 @@ function renderLancesPublicos(b) {
 }
 
 // ── RENDER PAINEL ADMIN ───────────────────────────────────────────────────────
-async function renderPainelAdmin(b) {
+function renderPainelAdmin(b) {
   const lances=b.lances||[];
   const comComp=lances.filter(l=>l.pago&&l.comprovante);
   const semComp=lances.filter(l=>l.pago&&!l.comprovante);
   const pendentes=lances.filter(l=>!l.pago);
   const ganhadores=b.ganhadores||[];
-  const participantesMap = Object.fromEntries((b.participants||[]).map(p=>[p.userId,p]));
-  const isAdmin = (b.adminId || b.creatorId) === currentUser.uid;
-  
-  let ganhadoresHTML = '';
-  if(ganhadores.length > 0) {
-    const cardsGanhadores = await Promise.all(ganhadores.map(async g => {
-      let pixGanhador = '—';
-      let phoneGanhador = '—';
-      let emailGanhador = g.email || '—';
-      try {
-        const uSnap = await getDoc(doc(db, 'users', g.userId));
-        if(uSnap.exists()) {
-          pixGanhador = uSnap.data().pixRecebimento || '—';
-          phoneGanhador = uSnap.data().phone || '—';
-        }
-      } catch(e) {
-        pixGanhador = participantesMap[g.userId]?.pixRecebimento || '—';
-      }
-
-      const hasPix = pixGanhador && pixGanhador !== '—' && pixGanhador.trim() !== '';
-      
-      let pixDisplay = '';
-      let adminActions = '';
-
-      if (hasPix) {
-        pixDisplay = `<div class="ganhador-admin-pix">🔑 PIX DO GANHADOR: <strong class="pix-key" onclick="copyPix('${pixGanhador}')">${pixGanhador} 📋</strong></div>`;
-      } else {
-        pixDisplay = `<div class="ganhador-admin-pix" style="color:#ff6b6b; font-weight:700;">⚠️ Chave Pix não cadastrada</div>`;
-        if (isAdmin) {
-          adminActions = `
-          <div class="ganhador-no-pix-actions">
-            <button class="btn-admin-alert" onclick="enviarAlertaPix('${g.name}')">🔔 Enviar Alerta pelo Sistema</button>
-            <button class="btn-admin-contact" onclick="verContatoGanhador('${g.name}','${emailGanhador}','${phoneGanhador}')">👤 Ver Dados p/ Contato</button>
-          </div>`;
-        }
-      }
-
-      // Bloco de Upload/Viz de Comprovante de Prêmio pago pelo Admin
-      let comprovantePremioHTML = '';
-      if (b.comprovantesPremio && b.comprovantesPremio[g.userId]) {
-        comprovantePremioHTML = `
-        <div class="premio-pago-box">
-          <span class="status-pago-badge">💰 PRÊMIO PAGO</span>
-          <button class="btn-ver-comp" style="margin-top:6px;" onclick="abrirModalImagem('${b.comprovantesPremio[g.userId]}','Comprovante de Pagamento do Prêmio')">📄 Ver Recibo do Prêmio</button>
-        </div>`;
-      } else if (isAdmin) {
-        comprovantePremioHTML = `
-        <div class="upload-premio-box">
-          <label class="admin-sub" style="margin-top:8px; display:block;">Informar Pagamento do Prêmio:</label>
-          <input type="file" id="premio-file-${g.userId}" accept="image/*,application/pdf" onchange="uploadComprovantePremio('${b.id}','${g.userId}',this)">
-          <label for="premio-file-${g.userId}" class="btn-upload" style="background:rgba(241,196,15,0.1); border-color:var(--gold); color:var(--gold);">📎 Anexar Comprovante do Prêmio</label>
-        </div>`;
-      } else {
-        comprovantePremioHTML = `<div class="premio-pago-box" style="color:var(--gray-400); font-size:11px;">⏳ Aguardando transferência financeira do prêmio.</div>`;
-      }
-
-      return `<div class="ganhador-admin-card">
-        <div class="ganhador-admin-nome">🏆 ${g.name}</div>
-        <div class="ganhador-admin-valor">R$ ${g.valor?.toFixed(2)}</div>
-        ${pixDisplay}
-        ${adminActions}
-        ${comprovantePremioHTML}
-      </div>`;
-    }));
-
-    ganhadoresHTML = `
-    <div class="admin-ganhadores">
-      <div class="admin-sub">🏆 Liquidação de Ganhadores</div>
-      ${cardsGanhadores.join('')}
-    </div>`;
-  }
-
-  // Se for apenas o criador e não o administrador financeiro, exibe visão compacta de auditoria
-  if (!isAdmin) {
-    return `
-    <div class="collapsible-card card-admin" id="card-admin" style="border-color:rgba(255,255,255,0.15)">
-      <button class="card-header" onclick="toggleCard('admin')">
-        <span>👑 Auditoria do Criador</span>
-        <span class="card-toggle-icon" id="card-icon-admin">▾</span>
-      </button>
-      <div class="card-body" id="card-body-admin">
-        ${ganhadoresHTML}
-      </div>
-    </div>`;
-  }
-
+  const participantesMap=Object.fromEntries((b.participants||[]).map(p=>[p.userId,p]));
   return `
   <div class="collapsible-card card-admin" id="card-admin">
     <button class="card-header" onclick="toggleCard('admin')">
-      <span>💼 Painel do Administrador Financeiro</span>
+      <span>💼 Painel de Gerenciamento (Admin/Criador)</span>
       <span class="card-toggle-icon" id="card-icon-admin">▾</span>
     </button>
     <div class="card-body" id="card-body-admin">
-      ${ganhadoresHTML}
-      <div class="admin-sub">📎 Comprovantes de Apostas Recbidas (${comComp.length})</div>
+      ${ganhadores.length?`
+      <div class="admin-ganhadores">
+        <div class="admin-sub">🏆 Ganhadores — Transferir valores</div>
+        ${ganhadores.map(g=>{
+          const part=participantesMap[g.userId];
+          const pix=part?.pixRecebimento||'—';
+          return `<div class="ganhador-admin-card">
+            <div class="ganhador-admin-nome">${g.name}</div>
+            <div class="ganhador-admin-valor">R$ ${g.valor?.toFixed(2)}</div>
+            <div class="ganhador-admin-pix">PIX: <strong class="pix-key" onclick="copyPix('${pix}')">${pix} 📋</strong></div>
+          </div>`;
+        }).join('')}
+      </div>`:''}
+      <div class="admin-sub">📎 Comprovantes (${comComp.length})</div>
       ${!comComp.length?'<p class="empty-p">Nenhum comprovante ainda.</p>':
         comComp.map(l=>{
           const part=participantesMap[l.userId];
@@ -621,7 +577,7 @@ async function renderPainelAdmin(b) {
               <span class="comp-admin-pix">PIX: ${pix}</span>
             </div>
             <div class="comp-admin-placar">${b.team1} ${l.gol1}×${l.gol2} ${b.team2}</div>
-            <button class="btn-ver-comp" onclick="verComprovanteAdmin('${l.id}')">📄 Ver Comprovante</button>
+            <button class="btn-ver-comp" onclick="verComprovante('${l.comprovante}')">📄 Ver Comprovante</button>
           </div>`;
         }).join('')}
       ${semComp.length?`<div class="admin-sub" style="margin-top:12px">⚠️ Pagos sem comprovante (${semComp.length})</div>
@@ -632,79 +588,11 @@ async function renderPainelAdmin(b) {
   </div>`;
 }
 
-// ── NOVAS FUNÇÕES DO ADMINISTRADOR FINANCEIRO ───────────────────────────────
-window.enviarAlertaPix = (nome) => {
-  toast(`Alerta enviado com sucesso para ${nome}! 🔔`, 'success');
-};
-
-window.verContatoGanhador = (nome, email, telefone) => {
-  const old = document.getElementById('modal-contato');
-  if(old) old.remove();
-  const m = document.createElement('div');
-  m.id = 'modal-contato';
-  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-  m.innerHTML = `<div style="background:#122417; border:2px solid var(--gold); border-radius:16px; padding:20px; width:100%; max-width:380px;">
-    <div style="font-family:'Bebas Neue'; font-size:22px; color:var(--gold); margin-bottom:12px;">👤 Contato do Apostador</div>
-    <div style="margin-bottom:10px; font-size:14px;"><strong>Nome:</strong> ${nome}</div>
-    <div style="margin-bottom:10px; font-size:14px;"><strong>E-mail:</strong> ${email}</div>
-    <div style="margin-bottom:16px; font-size:14px;"><strong>Telefone:</strong> ${telefone}</div>
-    <button onclick="document.getElementById('modal-contato').remove()" style="width:100%; background:var(--gold); border:none; padding:10px; border-radius:8px; font-weight:700; cursor:pointer; color:#0a190f;">Fechar Janela</button>
-  </div>`;
-  document.body.appendChild(m);
-};
-
-window.uploadComprovantePremio = async (bolaoId, userId, input) => {
-  const file = input.files[0]; if(!file) return;
-  if(file.size > 5*1024*1024) { toast('Arquivo muito grande (máx 5MB)','error'); return; }
-  loading(true);
-  try {
-    const base64 = await compressImage(file, 800, 0.65);
-    const snap = await getDoc(doc(db, 'boloes', bolaoId));
-    const bData = snap.data();
-    const comprovantesPremio = bData.comprovantesPremio || {};
-    comprovantesPremio[userId] = base64;
-    
-    await updateDoc(doc(db, 'boloes', bolaoId), { comprovantesPremio });
-    toast('Comprovante do prêmio anexado e registrado com sucesso! 💰', 'success');
-  } catch(e) {
-    toast('Erro ao salvar comprovante: ' + e.message, 'error');
-  } finally {
-    loading(false);
-  }
-};
-
 // ── RENDER RESULTADOS ─────────────────────────────────────────────────────────
 function renderResultados(b) {
   const pagosComp=(b.lances||[]).filter(l=>l.pago&&l.comprovante);
   const total=pagosComp.length*(b.valorLance||0)+(b.acumulado||0);
-  
-  let bannerGanhadorDestaque = '';
-  if(b.status==='finished' && b.ganhadores) {
-    const souGanhador = b.ganhadores.some(g => g.userId === currentUser.uid);
-    if(souGanhador) {
-      const temPix = userProfile && userProfile.pixRecebimento && userProfile.pixRecebimento.trim() !== '';
-      if(temPix) {
-        bannerGanhadorDestaque = `
-        <div class="banner-ganhador-sucesso">
-          🎉 Parabéns! Você é o ganhador do bolão!
-          ${b.comprovantesPremio && b.comprovantesPremio[currentUser.uid] ? 
-            `<button class="btn-primary" style="margin-top:10px; padding:6px 12px; font-size:12px; background:#fff;" onclick="abrirModalImagem('${b.comprovantesPremio[currentUser.uid]}','Meu Comprovante de Prêmio')">📄 Visualizar Meu Comprovante de Pagamento</button>` : 
-            `<div style="font-size:12px; font-family:'Segoe UI'; font-weight:normal; margin-top:5px; opacity:0.9;">O administrador financeiro já foi notificado e está processando sua transferência.</div>`}
-        </div>`;
-      } else {
-        bannerGanhadorDestaque = `
-        <div class="banner-ganhador-alerta">
-          🎉 Parabéns! Você é o ganhador do bolão!<br>
-          <span style="font-weight:800; text-transform:uppercase; display:block; margin-top:5px;">⚠️ Campo obrigatório para receber o prêmio:</span>
-          Identificamos que você não informou sua chave PIX para recebimento. Por favor, acesse seu perfil agora para cadastrar.
-          <button class="btn-primary" style="margin-top:10px; padding:8px 12px; font-size:12px;" onclick="abrirModalPerfil()">👤 Configurar Meu PIX Agora</button>
-        </div>`;
-      }
-    }
-  }
-
   if(b.status==='finished'&&b.resultado) return `
-  ${bannerGanhadorDestaque}
   <div class="collapsible-card card-resultado-final" id="card-res-final">
     <button class="card-header" onclick="toggleCard('res-final')">
       <span>🏆 Resultado Final</span>
@@ -714,19 +602,12 @@ function renderResultados(b) {
       <div class="placar-final">${b.team1} <span>${b.resultado.gol1}</span> × <span>${b.resultado.gol2}</span> ${b.team2}</div>
       ${b.ganhadores?.length?`
       <div class="ganhadores-pub">🎉 Ganhadores:
-        ${b.ganhadores.map(g=>{
-          const reciboDisponivel = b.comprovantesPremio && b.comprovantesPremio[g.userId];
-          return `<div class="ganhador-chip" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>${g.name} — R$ ${g.valor?.toFixed(2)}</span>
-            ${reciboDisponivel ? `<button class="btn-trocar-admin" style="font-size:9px; padding:2px 6px;" onclick="abrirModalImagem('${b.comprovantesPremio[g.userId]}','Comprovante de Pagamento de Prêmio')">📄 Recibo</button>` : '<span style="font-size:9px; color:var(--gray-400)">⏳ Pendente</span>'}
-          </div>`;
-        }).join('')}
+        ${b.ganhadores.map(g=>`<div class="ganhador-chip">${g.name} — R$ ${g.valor?.toFixed(2)}</div>`).join('')}
       </div>`:`<div class="acumulou">😔 Ninguém acertou! R$ ${total.toFixed(2)} acumulado.</div>`}
       <div class="section-title" style="margin-top:14px;font-size:13px">Placares apostados</div>
       ${pagosComp.map(l=>`<div class="lance-resumo">${l.userName}: ${b.team1} ${l.gol1}×${l.gol2} ${b.team2}</div>`).join('')}
     </div>
   </div>`;
-  
   if(b.status==='closed') return `
   <div class="collapsible-card card-fechado" id="card-fechado">
     <button class="card-header" onclick="toggleCard('fechado')">
@@ -741,7 +622,26 @@ function renderResultados(b) {
   return '';
 }
 
-// ── LANCES ────────────────────────────────────────────────────────────────────
+// ── ACTIONS & HANDLERS ────────────────────────────────────────────────────────
+window.participarBolao = async bolaoId => {
+  if(!currentUser) return;
+  loading(true);
+  try {
+    const snap = await getDoc(doc(db,'users',currentUser.uid));
+    const pData = snap.exists() ? snap.data() : { name: currentUser.displayName||'Apostador' };
+    await updateDoc(doc(db,'boloes',bolaoId), {
+      participants: arrayUnion({
+        userId: currentUser.uid,
+        name: pData.name || currentUser.displayName || 'Anônimo',
+        email: currentUser.email,
+        phone: pData.phone || '',
+        pixRecebimento: pData.pixRecebimento || ''
+      })
+    });
+    toast('Você entrou no bolão! 🎉','success');
+  } catch(e) { toast('Erro ao entrar no bolão','error'); } finally { loading(false); }
+};
+
 window.addLance = async () => {
   if(!currentBolao) return;
   const g1=parseInt($('score1').value), g2=parseInt($('score2').value);
@@ -749,28 +649,12 @@ window.addLance = async () => {
   const gd=new Date(currentBolao.gameDateTime);
   const deadline=new Date(gd.getTime()-30*60*1000);
   if(new Date()>=deadline||currentBolao.status!=='open'){ toast('Apostas encerradas','error'); return; }
-  
-  // VALIDAÇÃO DE LANCES IGUAIS (JA FEITOS E PAGOS)
-  if(currentBolao.bloquearLancesIguais) {
-    const lancesAtuais = currentBolao.lances || [];
-    const lanceDuplicadoPago = lancesAtuais.some(l => 
-      l.pago && parseInt(l.gol1) === g1 && parseInt(l.gol2) === g2
-    );
-    if(lanceDuplicadoPago) {
-      toast('Esse lance ja foi feito e pago. Infomre lance diferente.','error');
-      return;
-    }
-  }
-
   loading(true);
   try {
     const lanceId=Date.now().toString(36)+Math.random().toString(36).slice(2);
     await updateDoc(doc(db,'boloes',currentBolao.id),{lances:arrayUnion({
-      id:lanceId, userId:currentUser.uid,
-      userName:currentUser.displayName||currentUser.email.split('@')[0],
-      userEmail:currentUser.email,
-      gol1:g1, gol2:g2, pago:false, concluido:false, comprovante:null,
-      timestamp:new Date().toISOString()
+      id:lanceId, userId:currentUser.uid, userName:currentUser.displayName||currentUser.email.split('@')[0],
+      userEmail:currentUser.email, gol1:g1, gol2:g2, pago:false, concluido:false, comprovante:null, timestamp:new Date().toISOString()
     })});
     if($('score1')) $('score1').value='';
     if($('score2')) $('score2').value='';
@@ -785,57 +669,26 @@ window.confirmarPagamento = async (bolaoId, lanceId) => {
   loading(true);
   try {
     const snap=await getDoc(doc(db,'boloes',bolaoId));
-    const bData = snap.data();
-    const lanceAtual = (bData.lances || []).find(l => l.id === lanceId);
-
-    if(bData.bloquearLancesIguais && lanceAtual) {
-      const jaExistePago = (bData.lances || []).some(l => 
-        l.id !== lanceId && l.pago && parseInt(l.gol1) === parseInt(lanceAtual.gol1) && parseInt(l.gol2) === parseInt(lanceAtual.gol2)
-      );
-      if(jaExistePago) {
-        toast('Não foi possível confirmar. Esse lance já foi feito e pago por outro participante.','error');
-        loading(false);
-        return;
-      }
-    }
-
-    const lances=(bData.lances||[]).map(l=>l.id===lanceId?{...l,pago:true}:l);
+    const lances=(snap.data().lances||[]).map(l=>l.id===lanceId?{...l,pago:true}:l);
     await updateDoc(doc(db,'boloes',bolaoId),{lances});
     toast('Pagamento confirmado! ✅','success');
   } catch(e){ toast('Erro','error'); } finally{ loading(false); }
 };
 
 window.uploadComprovante = async (bolaoId, lanceId, input) => {
-  const file=input.files[0]; if(!file) return;
+  const file=input.files[0];
+  if(!file) return;
   if(currentBolao){
     const gd=new Date(currentBolao.gameDateTime);
     const deadline=new Date(gd.getTime()-30*60*1000);
-    if(new Date()>=deadline||currentBolao.status!=='open'){
-      toast('Apostas encerradas — comprovante não aceito','error'); input.value=''; return;
-    }
+    if(new Date()>=deadline||currentBolao.status!=='open'){ toast('Apostas encerradas — comprovante não aceito','error'); input.value=''; return; }
   }
   if(file.size>5*1024*1024){ toast('Arquivo muito grande (máx 5MB)','error'); return; }
-  
   loading(true);
   try {
-    const snapVerify=await getDoc(doc(db,'boloes',bolaoId));
-    const bDataVerify = snapVerify.data();
-    const lanceAlvo = (bDataVerify.lances || []).find(l => l.id === lanceId);
-
-    if(bDataVerify.bloquearLancesIguais && lanceAlvo) {
-      const jaExistePago = (bDataVerify.lances || []).some(l => 
-        l.id !== lanceId && l.pago && parseInt(l.gol1) === parseInt(lanceAlvo.gol1) && parseInt(l.gol2) === parseInt(lanceAlvo.gol2)
-      );
-      if(jaExistePago) {
-        toast('Esse lance ja foi feito e pago. Infomre lance diferente.','error');
-        input.value = '';
-        loading(false);
-        return;
-      }
-    }
-
     const base64=await compressImage(file,800,0.65);
-    const lances=(bDataVerify.lances||[]).map(l=>l.id===lanceId?{...l,comprovante:base64,pago:true}:l);
+    const snap=await getDoc(doc(db,'boloes',bolaoId));
+    const lances=(snap.data().lances||[]).map(l=>l.id===lanceId?{...l,comprovante:base64,pago:true}:l);
     await updateDoc(doc(db,'boloes',bolaoId),{lances});
     toast('Comprovante enviado e pagamento confirmado! ✅','success');
   } catch(e){ toast('Erro: '+e.message,'error'); } finally{ loading(false); }
@@ -844,18 +697,25 @@ window.uploadComprovante = async (bolaoId, lanceId, input) => {
 function compressImage(file,maxWidth,quality) {
   return new Promise((res,rej)=>{
     if(file.type==='application/pdf'){
-      const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=rej; r.readAsDataURL(file); return;
+      const r=new FileReader();
+      r.onload=e=>res(e.target.result);
+      r.onerror=rej;
+      r.readAsDataURL(file);
+      return;
     }
-    const img=new Image(); const url=URL.createObjectURL(file);
+    const img=new Image();
+    const url=URL.createObjectURL(file);
     img.onload=()=>{
       URL.revokeObjectURL(url);
       const scale=Math.min(1,maxWidth/img.width);
       const canvas=document.createElement('canvas');
-      canvas.width=Math.round(img.width*scale); canvas.height=Math.round(img.height*scale);
+      canvas.width=Math.round(img.width*scale);
+      canvas.height=Math.round(img.height*scale);
       canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
       res(canvas.toDataURL('image/jpeg',quality));
     };
-    img.onerror=rej; img.src=url;
+    img.onerror=rej;
+    img.src=url;
   });
 }
 
@@ -879,11 +739,12 @@ window.concluirApostas = async bolaoId => {
 window.encerrarBolao = async bolaoId => {
   if(!confirm('Encerrar bolão manualmente?')) return;
   loading(true);
-  try{ await updateDoc(doc(db,'boloes',bolaoId),{status:'closed'}); toast('Bolão encerrado','info'); }
-  catch(e){ toast('Erro','error'); } finally{ loading(false); }
+  try{
+    await updateDoc(doc(db,'boloes',bolaoId),{status:'closed'});
+    toast('Bolão encerrado','info');
+  } catch(e){ toast('Erro','error'); } finally{ loading(false); }
 };
 
-// ── RESULTADO ─────────────────────────────────────────────────────────────────
 window.informarResultado = async bolaoId => {
   const g1=parseInt($('res1').value), g2=parseInt($('res2').value);
   if(isNaN(g1)||isNaN(g2)){ toast('Informe o placar final','error'); return; }
@@ -893,96 +754,26 @@ window.informarResultado = async bolaoId => {
     const b=snap.data();
     const lances=(b.lances||[]).filter(l=>l.pago&&l.comprovante);
     const total=lances.length*(b.valorLance||0)+(b.acumulado||0);
-    const acertadores=lances.filter(l=>parseInt(l.gol1)===g1&&parseInt(l.gol2)===g2);
-    let ganhadores=[], acumulado=0;
-    if(acertadores.length){
-      const val=total/acertadores.length;
-      ganhadores=acertadores.map(l=>({userId:l.userId,name:l.userName,email:l.userEmail,valor:val}));
-    } else {
-      acumulado=total;
+    const acertadores=lances.filter(l=>parseInt(l.gol1)===g1 && parseInt(l.gol2)===g2);
+    
+    let ganhadoresList = [];
+    if(acertadores.length > 0) {
+      const pMel = total / acertadores.length;
+      ganhadoresList = acertadores.map(a => ({ userId: a.userId, name: a.userName, valor: pMel }));
     }
-    await updateDoc(doc(db,'boloes',bolaoId),{resultado:{gol1:g1,gol2:g2},ganhadores,acumulado,status:'finished',comprovantesPremio:{}});
-    toast(ganhadores.length?`🏆 ${ganhadores.length} ganhador(es)!`:'😔 Acumulado!','success');
-  } catch(e){ toast('Erro','error'); } finally{ loading(false); }
+    
+    await updateDoc(doc(db,'boloes',bolaoId), {
+      resultado: { gol1: g1, gol2: g2 },
+      ganhadores: ganhadoresList,
+      status: 'finished'
+    });
+    toast('Resultado salvo e ganhadores definidos! 🏆','success');
+  } catch(e){ toast('Erro ao salvar resultado','error'); } finally{ loading(false); }
 };
-
-// ── PARTICIPAR ────────────────────────────────────────────────────────────────
-window.participarBolao = async bolaoId => {
-  loading(true);
-  try {
-    const snap=await getDoc(doc(db,'boloes',bolaoId));
-    const b=snap.data();
-    if(!(b.participants||[]).some(p=>p.userId===currentUser.uid)){
-      const userSnap=await getDoc(doc(db,'users',currentUser.uid));
-      const pix=userSnap.exists()?userSnap.data().pixRecebimento||'':'';
-      await updateDoc(doc(db,'boloes',bolaoId),{participants:arrayUnion({
-        userId:currentUser.uid,
-        userName:currentUser.displayName||currentUser.email.split('@')[0],
-        userEmail:currentUser.email,
-        pixRecebimento:pix,
-        joinedAt:new Date().toISOString()
-      })});
-    }
-    toast('Bem-vindo ao bolão! 🎉','success');
-  } catch(e){ toast('Erro ao participar','error'); } finally{ loading(false); }
-};
-
-// ── ADMIN MODAL ───────────────────────────────────────────────────────────────
-window.abrirModalAdmin = bolaoId => {
-  const old=document.getElementById('modal-admin');
-  if(old) old.remove();
-  const b=currentBolao;
-  const opts=[{userId:b.creatorId,name:(b.creatorName||'Criador')+' (Criador)'},...(b.participants||[]).filter(p=>p.userId!==b.creatorId).map(p=>({userId:p.userId,name:p.userName}))];
-  const modal=document.createElement('div');
-  modal.id='modal-admin';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9997;display:flex;align-items:flex-end;justify-content:center;';
-  modal.innerHTML=`<div style="background:#1a2e1e;border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:500px;border-top:2px solid var(--gold)">
-    <div style="font-family:'Bebas Neue';font-size:22px;color:var(--gold);margin-bottom:4px">💼 Administrador Financeiro</div>
-    <div style="font-size:13px;color:var(--gray-400);margin-bottom:16px">Quem confere comprovantes e transfere prêmios.</div>
-    ${opts.map(o=>`<button onclick="definirAdmin('${bolaoId}','${o.userId}','${o.name.replace(/'/g,"\\'")}');document.getElementById('modal-admin').remove()" style="width:100%;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:10px;padding:13px 16px;text-align:left;color:var(--white);font-size:14px;font-weight:600;margin-bottom:8px;cursor:pointer">
-      ${o.userId===(b.adminId||b.creatorId)?'✅ ':''}${o.name}</button>`).join('')}
-    <button onclick="document.getElementById('modal-admin').remove()" style="width:100%;background:none;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px;color:var(--gray-400);cursor:pointer;margin-top:4px">Cancelar</button>
-  </div>`;
-  document.body.appendChild(modal);
-};
-
-window.definirAdmin = async (bolaoId, userId, userName) => {
-  loading(true);
-  try {
-    await updateDoc(doc(db,'boloes',bolaoId),{adminId:userId,adminName:userName.replace(' (Criador)','')});
-    toast('Administrador updated! 💼','success');
-  } catch(e){ toast('Erro ao alterar administrador','error'); } finally{ loading(false); }
-};
-
-// ── UTILS DETALHE ─────────────────────────────────────────────────────────────
-let countdownInterval=null;
-function startCountdown(gameDate,bolaoId) {
-  if(countdownInterval) clearInterval(countdownInterval);
-  const update=()=>{
-    const diff=gameDate-new Date();
-    const deadline=new Date(gameDate.getTime()-30*60*1000);
-    const now=new Date();
-    const el=document.querySelector('.detail-status');
-    if(!el) return;
-    if(now>=deadline && currentBolao && currentBolao.status==='open' && currentBolao.lances?.filter(l=>l.pago).every(l=>l.concluido)){
-      clearInterval(countdownInterval);
-      updateDoc(doc(db,'boloes',bolaoId),{status:'closed'});
-      return;
-    }
-    if(diff>0){
-      el.innerHTML=`⏱ ${Math.floor(diff/3600000)}h ${Math.floor((diff%3600000)/60000)}min ${Math.floor((diff%60000)/1000)}s`;
-    } else {
-      el.innerHTML='🔴 Em andamento / finalizado';
-      clearInterval(countdownInterval);
-    }
-  };
-  update();
-  countdownInterval=setInterval(update,1000);
-}
 
 window.copyPix = text => {
   navigator.clipboard.writeText(text);
-  toast('Chave PIX copiada! 💳','success');
+  toast('Chave PIX copiada! 📋','success');
 };
 
 window.copyLink = text => {
@@ -990,368 +781,365 @@ window.copyLink = text => {
   toast('Link de convite copiado! 📨','success');
 };
 
-window.verComprovante = lanceId => {
-  if(!currentBolao) return;
-  const l=currentBolao.lances.find(l=>l.id===lanceId);
-  if(!l||!l.comprovante) return;
-  abrirModalImagem(l.comprovante,'Comprovante de Pagamento');
+window.verComprovante = base64Data => {
+  if(!base64Data) { toast('Comprovante não disponível','error'); return; }
+  const win = window.open();
+  if(win) {
+    win.document.write(`<iframe src="${base64Data}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+  } else {
+    toast('Pop-up bloqueado. Permita a abertura de pop-ups.','error');
+  }
 };
 
-window.verComprovanteAdmin = lanceId => {
-  verComprovante(lanceId);
+window.abrirModalAdmin = async bolaoId => {
+  const email = prompt("Digite o e-mail do participante que será o novo Administrador Financeiro:");
+  if(!email) return;
+  loading(true);
+  try {
+    const snap = await getDoc(doc(db,'boloes',bolaoId));
+    const b = snap.data();
+    const part = (b.participants||[]).find(p => p.email.toLowerCase() === email.trim().toLowerCase());
+    if(!part) {
+      toast('Participante não encontrado no bolão. Garanta que ele já clicou em "Participar".','error');
+      return;
+    }
+    await updateDoc(doc(db,'boloes',bolaoId), {
+      adminId: part.userId,
+      adminName: part.name
+    });
+    toast(`Administrador alterado para ${part.name}! 💼`,'success');
+  } catch(e){ toast('Erro ao alterar administrador','error'); } finally{ loading(false); }
 };
 
-window.abrirModalImagem = (src,title) => {
-  const old=document.getElementById('modal-img'); if(old) old.remove();
-  const m=document.createElement('div'); m.id='modal-img';
-  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
-  m.innerHTML=`<div style="color:var(--gold);font-family:'Bebas Neue';font-size:20px;margin-bottom:12px">${title}</div>
-    <div style="flex:1;width:100%;max-width:450px;display:flex;align-items:center;justify-content:center;overflow:hidden">
-      ${src.startsWith('data:application/pdf')?`<iframe src="${src}" style="width:100%;height:100%;border:none;border-radius:12px"></iframe>`:`<img src="${src}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5)">`}
-    </div>
-    <button onclick="document.getElementById('modal-img').remove()" style="margin-top:16px;background:var(--gold);color:#0a190f;border:none;border-radius:30px;padding:10px 32px;font-weight:700;cursor:pointer;font-size:14px">Fechar</button>`;
-  document.body.appendChild(m);
-}
-
-function firebaseError(code) {
-  switch(code) {
-    case 'auth/email-already-in-use': return 'E-mail já cadastrado.';
-    case 'auth/invalid-email': return 'E-mail inválido.';
-    case 'auth/weak-password': return 'Senha fraca (mín. 6 caracteres).';
-    case 'auth/wrong-password': case 'auth/user-not-found': return 'E-mail ou senha incorretos.';
-    default: return 'Erro ao autenticar. Tente novamente.';
+// ── DEEP LINK CHECK ───────────────────────────────────────────────────────────
+function checkDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const bId = params.get('bolao');
+  if(bId && currentUser) {
+    openBolao(bId);
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 }
+setTimeout(checkDeepLink, 1500);
 
-window.addEventListener('DOMContentLoaded', () => {
-  const p = new URLSearchParams(window.location.search);
-  const bId = p.get('bolao');
-  if(bId) {
-    const check = () => {
-      if(currentUser) { openBolao(bId); }
-      else { setTimeout(check, 200); }
-    };
-    check();
-  }
-});
 </script>
 
 <style>
 :root {
-  --bg-dark: #0a190f;
-  --panel-dark: #122417;
-  --green-primary: #0d3b1a;
-  --green-light: #1b4f26;
-  --gold: #f1c40f;
-  --gold-hover: #f39c12;
-  --white: #ffffff;
-  --gray-400: #a0aec0;
-  --border: rgba(255,255,255,0.08);
+  --primary: #0D3B1A;
+  --primary-light: #165C2B;
+  --accent: #E6AE15;
+  --accent-dark: #B88A0F;
+  --bg: #F4F7F5;
+  --card-bg: #FFFFFF;
+  --text: #1A2E22;
+  --text-muted: #556B5C;
+  --border: #E0E8E3;
+  --error: #D93838;
+  --success: #28A745;
+  --radius: 12px;
+  --shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
-* { box-sizing: border-box; margin:0; padding:0; font-family: 'Segoe UI', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
-body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 100vh; overflow-x:hidden; }
 
-.top-bar { position: sticky; top:0; background: var(--green-primary); border-bottom: 2px solid var(--gold); padding: 12px 16px; display:flex; justify-content:space-between; align-items:center; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-.brand { font-family: 'Bebas Neue', 'Arial Black', sans-serif; font-size: 22px; color: var(--gold); display:flex; align-items:center; gap:6px; letter-spacing: 0.5px; }
-.user-menu { display:flex; align-items:center; gap:12px; }
-.user-welcome { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.btn-logout { background: none; border: 1px solid rgba(255,255,255,0.2); color: var(--gray-400); padding: 5px 10px; border-radius: 20px; font-size: 11px; cursor: pointer; font-weight:600; }
-.btn-perfil-top { background: var(--gold); border: none; color: #0a190f; padding: 5px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; font-weight: 700; transition: 0.2s; }
-.btn-perfil-top:hover { background: var(--gold-hover); }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { background: var(--bg); color: var(--text); padding-bottom: 40px; -webkit-font-smoothing: antialiased; }
 
-.main-container { width:100%; max-width: 500px; margin: 0 auto; padding: 16px; padding-bottom: 40px; }
-.view { display:none; animation: fadeIn 0.25s ease-out; }
-@keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+.top-bar { background: var(--primary); color: white; padding: 16px; display: flex; justify-content: space-between; align-items: center; position: sticky; top:0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.brand { font-weight: 800; font-size: 19px; display: flex; align-items: center; gap: 6px; }
+.top-user { display: flex; align-items: center; gap: 10px; }
+.user-btn { background: rgba(255,255,255,0.12); padding: 6px 12px; border-radius: 20px; font-size: 13px; color: white; border: none; cursor: pointer; font-weight: 500; }
 
-.form-group { margin-bottom: 14px; width: 100%; }
-.form-group label { display:block; font-size:12px; font-weight:700; color: var(--gold); margin-bottom: 5px; text-transform: uppercase; letter-spacing:0.3px; }
-.form-group input, .form-group textarea, .form-group select { width:100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color:var(--white); font-size:14px; outline:none; transition: all 0.2s; }
-.form-group input:focus, .form-group textarea:focus { border-color: var(--gold); background: rgba(255,255,255,0.08); }
-.form-row { display:flex; gap:12px; }
+.container { max-width: 480px; margin: 0 auto; padding: 16px; width: 100%; }
+.view { display: none; animation: fadeIn 0.3s ease; }
 
-.btn-primary { width:100%; background: var(--gold); color:#0a190f; border:none; padding: 14px; border-radius:12px; font-weight:700; font-size:15px; cursor:pointer; box-shadow: 0 4px 12px rgba(241,196,15,0.2); transition: all 0.15s active; }
-.btn-primary:active { transform: scale(0.98); opacity:0.9; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-.auth-box { background: var(--panel-dark); border-radius: 20px; padding: 24px; border: 1px solid var(--border); margin-top: 20px; box-shadow:0 8px 32px rgba(0,0,0,0.3); }
-.auth-tabs { display:flex; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.auth-tab { flex:1; text-align:center; padding: 12px; color: var(--gray-400); font-weight:700; font-size:14px; cursor:pointer; border-bottom: 2px solid transparent; }
-.auth-tab.active { color: var(--gold); border-color: var(--gold); }
+/* CARDS */
+.bolao-card { background: var(--card-bg); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); border: 1px solid var(--border); cursor: pointer; transition: transform 0.2s; position: relative; }
+.bolao-card:active { transform: scale(0.98); }
+.bolao-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.bolao-card-name { font-weight: 700; font-size: 16px; color: var(--primary); }
 
-.section-title { font-family: 'Bebas Neue', sans-serif; font-size:24px; color: var(--white); margin: 18px 0 10px 0; letter-spacing:0.5px; display:flex; align-items:center; justify-content:space-between; }
-.btn-action-main { background: var(--green-light); border: 1px solid rgba(255,255,255,0.1); color: var(--gold); border-radius: 12px; padding: 14px; text-align:center; font-weight:700; font-size:14px; cursor:pointer; margin-bottom: 16px; display:block; text-decoration:none; width:100%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.badge { font-size: 11px; padding: 4px 8px; border-radius: 12px; font-weight: 700; text-transform: uppercase; }
+.badge-open { background: #E6F4EA; color: var(--success); }
+.badge-closed { background: #FFF0F0; color: var(--error); }
+.badge-finished { background: #F1F3F4; color: var(--text-muted); }
 
-.bolao-card { background: var(--panel-dark); border-radius:16px; padding:16px; margin-bottom:12px; border: 1px solid var(--border); cursor:pointer; position:relative; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
-.bolao-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-.bolao-card-name { font-size:15px; font-weight:700; color:var(--white); max-width: 70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.badge { font-size:10px; font-weight:800; padding:4px 8px; border-radius:20px; text-transform:uppercase; }
-.badge-open { background: rgba(46,204,113,0.15); color: #2ecc71; }
-.badge-closed { background: rgba(230,126,34,0.15); color: #e67e22; }
-.badge-finished { background: rgba(149,165,166,0.15); color: #95a5a6; }
-.bolao-vs { display:flex; align-items:center; justify-content:center; gap:16px; margin: 10px 0; }
-.team-name { font-size:16px; font-weight:700; flex:1; text-align:center; max-width:40%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.vs-badge { font-size:10px; font-weight:800; color:#0a190f; background: var(--gold); padding:3px 6px; border-radius:6px; font-style:italic; }
-.bolao-meta { display:flex; justify-content:space-between; font-size:12px; color: var(--gray-400); border-bottom:1px solid rgba(255,255,255,0.04); padding-bottom:10px; margin-bottom:10px; }
-.bolao-stats-row { display:flex; justify-content:space-between; align-items:center; }
-.stat-mini { display:flex; flex-direction:column; align-items:center; }
-.stat-mini span { font-size:13px; font-weight:700; color:var(--white); }
-.stat-mini label { font-size:9px; color:var(--gray-400); text-transform:uppercase; margin-top:2px; font-weight:600; }
-.stat-mini.pot span { color: var(--gold); }
-.creator-badge { position:absolute; bottom:0; right:16px; background:rgba(241,196,15,0.06); border:1px solid rgba(241,196,15,0.15); border-bottom:none; border-radius:6px 6px 0 0; padding:2px 6px; font-size:8px; font-weight:800; color:var(--gold); text-transform:uppercase; }
+.bolao-vs { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 12px 0; background: #F8FAF8; padding: 8px; border-radius: 8px; }
+.team-name { font-weight: 700; font-size: 15px; width: 42%; text-align: center; }
+.vs-badge { background: var(--accent); color: var(--primary); font-weight: 900; font-size: 10px; padding: 3px 6px; border-radius: 4px; }
 
-.detail-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:8px; }
-.btn-back { background:rgba(255,255,255,0.05); border:1px solid var(--border); color:var(--white); padding:8px 12px; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer; }
-.detail-title { font-family: 'Bebas Neue', sans-serif; font-size:22px; color:var(--white); flex:1; margin-left:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.detail-status { font-size:11px; font-weight:700; background:rgba(255,255,255,0.06); padding:6px 10px; border-radius:20px; color:var(--gold); }
-.vs-hero { background: var(--panel-dark); border-radius:16px; padding:18px 12px; display:flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--border); margin-bottom:14px; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
-.team-hero { font-family:'Bebas Neue',sans-serif; font-size:24px; text-align:center; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:0.3px; }
-.vs-center { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:110px; }
-.vs-big { font-size:11px; font-weight:800; background:var(--gold); color:#0a190f; padding:3px 8px; border-radius:6px; font-style:italic; }
-.game-date { font-size:10px; color:var(--gray-400); font-weight:600; text-align:center; margin-top:2px; }
+.bolao-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+.bolao-stats-row { display: flex; justify-content: space-between; background: #FAFBFB; border-top: 1px solid var(--border); padding-top: 8px; }
+.stat-mini { text-align: center; width: 24%; }
+.stat-mini span { display: block; font-weight: 700; font-size: 14px; color: var(--text); }
+.stat-mini label { font-size: 10px; color: var(--text-muted); }
+.stat-mini.pot span { color: var(--accent-dark); }
 
-.collapsible-card { background:var(--panel-dark); border-radius:16px; border:1px solid var(--border); margin-bottom:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
-.card-header { width:100%; background:none; border:none; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; color:var(--white); font-weight:700; font-size:14px; cursor:pointer; outline:none; text-align:left; }
-.card-header-right { display:flex; align-items:center; gap:8px; }
-.card-toggle-icon { font-size:14px; color:var(--gold); font-weight:bold; }
-.card-body { padding:0 16px 16px 16px; border-top:1px solid rgba(255,255,255,0.03); padding-top:14px; }
-.badge-count { background: rgba(255,255,255,0.08); padding:2px 6px; border-radius:10px; font-size:10px; font-weight:700; color:var(--gray-400); }
+.creator-badge { position: absolute; bottom: -6px; right: 12px; background: var(--primary-light); color: white; font-size: 9px; padding: 2px 6px; border-radius: 8px; font-weight: bold; }
 
-.admin-banner { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-.admin-icon { font-size:16px; }
-.admin-text { flex:1; }
-.admin-label { font-size:9px; color:var(--gray-400); text-transform:uppercase; font-weight:600; }
-.admin-name { font-size:13px; font-weight:700; color:var(--white); }
-.btn-trocar-admin { background:none; border:1px solid rgba(241,196,15,0.3); color:var(--gold); padding:4px 8px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; }
-.info-grid { display:grid; grid-template-columns: 1fr 1.2fr; gap:10px; margin-bottom:12px; }
-.info-card { background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:10px; padding:8px 10px; font-size:11px; color:var(--gray-400); line-height:1.4; }
-.info-card strong { color:var(--white); font-size:12px; display:block; margin-top:2px; word-break:break-all; }
-.info-card strong.pix-key { color:var(--gold); cursor:pointer; }
-.stats-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; margin-bottom:12px; }
-.stat-box { background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:10px; padding:8px 4px; display:flex; flex-direction:column; align-items:center; text-align:center; }
-.stat-num { font-size:14px; font-weight:700; color:var(--white); }
-.stat-label { font-size:8px; color:var(--gray-400); text-transform:uppercase; margin-top:2px; font-weight:600; }
-.total-box { background: rgba(241,196,15,0.04); border-color: rgba(241,196,15,0.15); }
-.total-box .stat-num { color: var(--gold); }
-.acumulado-banner { background:rgba(241,196,15,0.08); border:1px solid rgba(241,196,15,0.2); border-radius:10px; padding:8px; font-size:11px; font-weight:700; color:var(--gold); text-align:center; margin-bottom:12px; }
-.aviso-comprovante-inline { font-size:10px; color:var(--gray-400); text-align:center; margin-bottom:12px; }
-.participants-label { font-size:11px; font-weight:700; color:var(--gold); text-transform:uppercase; margin-bottom:6px; }
-.participant-list { display:flex; flex-wrap:wrap; gap:6px; }
-.participant-chip { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:20px; padding:4px 10px; font-size:11px; color:rgba(255,255,255,0.85); font-weight:600; }
-.share-row { margin-top:14px; background:rgba(0,0,0,0.15); padding:10px; border-radius:10px; border:1px solid var(--border); }
-.share-label { font-size:10px; font-weight:700; color:var(--gray-400); text-transform:uppercase; margin-bottom:4px; }
-.share-link-box { display:flex; gap:6px; }
-.share-link-box input { flex:1; background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:6px; padding:6px 10px; color:var(--gray-400); font-size:11px; outline:none; }
-.btn-copy { background:var(--green-light); border:1px solid rgba(255,255,255,0.1); color:var(--white); padding:6px 12px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; }
-.invited-list { font-size:10px; color:var(--gray-400); margin-top:6px; }
+/* OVERLAYS & FORMS */
+#loading-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(255,255,255,0.75); display: none; justify-content: center; align-items: center; z-index: 1000; }
+.spinner { width: 40px; height: 40px; border: 4px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.score-input-row { display:flex; align-items:center; justify-content:center; gap:10px; margin: 10px 0 14px 0; }
-.score-team { font-family:'Bebas Neue',sans-serif; font-size:18px; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; text-align:right; }
-.score-team:last-child { text-align:left; }
-.score-input { width:54px; height:46px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.15); border-radius:10px; text-align:center; font-size:20px; font-weight:700; color:var(--white); outline:none; }
-.score-input:focus { border-color:var(--gold); }
-.score-sep { font-size:16px; color:var(--gray-400); font-weight:700; }
-.deadline-info { font-size:10px; color:var(--gray-400); text-align:center; margin-bottom:10px; font-weight:600; }
-.apostaEncerrada { background:rgba(231,76,60,0.08); border:1px solid rgba(231,76,60,0.15); color:#e74c3c; border-radius:10px; padding:12px; text-align:center; font-size:12px; font-weight:700; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
+.form-group input, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #FAFAFA; }
+.form-group input:focus, .form-group textarea:focus { border-color: var(--primary); outline: none; background: white; }
+.form-row { display: flex; gap: 10px; }
+.form-row .form-group { flex: 1; }
 
-.my-lances-list { margin-top:14px; }
-.my-lance-card { background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; }
-.my-lance-card.pago { border-left:4px solid #2ecc71; }
-.my-lance-card.pago-sem-comp { border-left:4px solid #f1c40f; }
-.my-lance-card.pendente { border-left:4px solid #e74c3c; }
-.lance-placar { font-size:13px; font-weight:700; color:var(--white); }
-.lance-status { font-size:11px; font-weight:600; margin-top:2px; margin-bottom:8px; }
-.pix-reminder { font-size:10px; color:var(--gray-400); background:rgba(0,0,0,0.1); padding:6px; border-radius:6px; margin-bottom:8px; }
-.comprovante-upload input { display:none; }
-.btn-upload { display:block; text-align:center; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:11px; font-weight:600; color:var(--white); cursor:pointer; }
-.divider-or { text-align:center; font-size:9px; color:var(--gray-400); margin:4px 0; font-weight:700; }
-.btn-pago-sem { width:100%; background:none; border:1px solid rgba(255,255,255,0.1); color:var(--gray-400); padding:6px; border-radius:8px; font-size:10px; cursor:pointer; font-weight:600; }
-.btn-ver-comp { background:rgba(255,255,255,0.05); border:1px solid var(--border); color:var(--gold); border-radius:8px; padding:6px 12px; font-size:11px; font-weight:600; cursor:pointer; width:100%; }
-.btn-concluir { width:100%; background:var(--white); color:#0a190f; border:none; border-radius:10px; padding:10px; font-weight:700; font-size:12px; cursor:pointer; margin-top:8px; }
-.concluido-msg { font-size:11px; font-weight:700; color:#2ecc71; text-align:center; margin-top:8px; }
+.btn-primary { background: var(--primary); color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; transition: background 0.2s; }
+.btn-primary:hover { background: var(--primary-light); }
+.btn-secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); padding: 10px; border-radius: 8px; width: 100%; font-weight: 600; cursor: pointer; }
+.btn-danger { background: var(--error); color: white; border:none; padding: 10px; border-radius:8px; width:100%; font-weight:600; cursor:pointer; }
 
-.aviso-mini { font-size:10px; color:var(--gray-400); margin-bottom:8px; text-align:center; }
-.lance-pub-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
-.lance-pub-row:last-child { border:none; }
-.lance-pub-nome { font-size:12px; color:rgba(255,255,255,0.85); font-weight:600; max-width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.lance-pub-placar { font-size:12px; color:var(--gray-400); flex:1; text-align:center; }
-.lance-pub-placar strong { color:var(--white); font-size:13px; margin:0 4px; }
-.badge-comp-ok { font-size:10px; }
+/* TOAST */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(40px); background: #333; color: white; padding: 12px 20px; border-radius: 30px; font-size: 13px; font-weight: 500; z-index: 2000; box-shadow: 0 4px 15px rgba(0,0,0,0.2); opacity: 0; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; text-align: center; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast-success { background: var(--success); }
+.toast-error { background: var(--error); }
 
-.card-admin { border-color: rgba(241,196,15,0.25); }
-.admin-sub { font-size:11px; font-weight:800; color:var(--gold); text-transform:uppercase; margin-bottom:8px; margin-top:4px; letter-spacing:0.3px; }
-.comp-admin-card { background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; }
-.comp-admin-header { display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; }
-.comp-admin-nome { font-weight:700; color:var(--white); }
-.comp-admin-pix { color:var(--gray-400); font-size:10px; }
-.comp-admin-placar { font-size:12px; color:var(--white); font-weight:600; margin-bottom:8px; text-align:center; background:rgba(255,255,255,0.02); padding:4px; border-radius:6px; }
-.comp-admin-card.sem-comp { display:flex; justify-content:space-between; font-size:12px; padding:8px 10px; color:rgba(255,255,255,0.7); }
-.comp-admin-card.pendente-admin { display:flex; justify-content:space-between; font-size:12px; padding:8px 10px; color:var(--gray-400); opacity:0.7; }
-.admin-ganhadores { background:rgba(241,196,15,0.03); border:1px solid rgba(241,196,15,0.15); padding:10px; border-radius:12px; margin-bottom:12px; }
-.ganhador-admin-card { background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:8px; padding:12px 10px; margin-bottom:10px; }
-.ganhador-admin-nome { font-size:12px; font-weight:700; color:var(--white); }
-.ganhador-admin-valor { font-size:14px; font-weight:800; color:var(--gold); margin:2px 0; }
-.ganhador-admin-pix { font-size:10px; color:var(--gray-400); border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; margin-top:4px; }
+/* AUTH TABS */
+.auth-box { background: white; padding: 20px; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); margin-top: 24px; }
+.auth-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+.auth-tab { flex: 1; text-align: center; padding: 10px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.auth-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.placar-final { font-size:20px; font-family:'Bebas Neue',sans-serif; text-align:center; color:var(--white); margin:6px 0 12px 0; letter-spacing:0.5px; }
-.placar-final span { background:var(--gold); color:#0a190f; padding:2px 8px; border-radius:6px; margin:0 4px; font-size:22px; }
-.ganhadores-pub { background:rgba(46,204,113,0.08); border:1px solid rgba(46,204,113,0.2); border-radius:10px; padding:10px; font-size:12px; font-weight:700; color:#2ecc71; }
-.ganhador-chip { background:rgba(0,0,0,0.2); padding:6px; border-radius:6px; margin-top:6px; color:var(--white); font-size:11px; border:1px solid var(--border); }
-.acumulou { background:rgba(231,76,60,0.08); border:1px solid rgba(231,76,60,0.15); color:#e74c3c; border-radius:10px; padding:10px; text-align:center; font-size:12px; font-weight:700; }
-.lance-resumo { font-size:11px; color:var(--gray-400); padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.02); }
+/* HOME HERO */
+.home-hero { background: var(--primary); color: white; padding: 20px; border-radius: var(--radius); margin-bottom: 20px; box-shadow: var(--shadow); }
+.home-hero h2 { font-size: 20px; margin-bottom: 6px; }
+.home-hero p { font-size: 13px; opacity: 0.85; }
 
-.join-card { background:var(--panel-dark); border-radius:16px; border:1px solid var(--border); padding:24px 16px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,0.15); }
-.join-icon { font-size:40px; margin-bottom:10px; }
-.join-title { font-family:'Bebas Neue',sans-serif; font-size:24px; color:var(--gold); margin-bottom:6px; }
-.join-desc { font-size:13px; color:rgba(255,255,255,0.8); line-height:1.4; margin-bottom:16px; }
-.join-info { display:flex; justify-content:center; gap:16px; font-size:12px; font-weight:700; color:var(--white); margin-bottom:14px; background:rgba(0,0,0,0.15); padding:8px; border-radius:10px; }
-.aviso-comprovante { font-size:11px; color:var(--gray-400); margin-bottom:16px; }
+/* COLLAPSIBLE CARDS */
+.collapsible-card { background: white; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
+.card-header { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: #FAFBFB; border: none; text-align: left; cursor: pointer; font-weight: 700; font-size: 14px; color: var(--primary); border-bottom: 1px solid var(--border); }
+.card-header-right { display: flex; align-items: center; gap: 8px; }
+.card-toggle-icon { font-size: 14px; color: var(--text-muted); }
+.card-body { padding: 16px; display: block; }
+.badge-count { background: var(--primary); color: white; font-size: 11px; padding: 2px 6px; border-radius: 10px; font-weight: bold; }
 
-.empty-state { text-align:center; padding:40px 16px; color:var(--gray-400); }
-.empty-icon { font-size:36px; display:block; margin-bottom:10px; opacity:0.5; }
-.empty-state p { font-size:13px; line-height:1.4; }
-.loading-overlay { position:fixed; inset:0; background:rgba(10,25,15,0.8); display:flex; align-items:center; justify-content:center; z-index:10000; }
-.loading-dots { display:flex; justify-content:center; align-items:center; gap:6px; padding: 20px 0; }
-.loading-dots span { width:8px; height:8px; background:var(--gold); border-radius:50%; animation: bounce 0.5s infinite alternate; }
-.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
-.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes bounce { from { transform:translateY(0); opacity:0.4; } to { transform:translateY(-6px); opacity:1; } }
-.toast { position:fixed; bottom:24px; left:16px; right:16px; background:#1a2e1e; border:1px solid var(--border); padding:14px 16px; border-radius:12px; font-size:13px; font-weight:600; z-index:10005; box-shadow:0 8px 24px rgba(0,0,0,0.4); transform:translateY(100px); opacity:0; transition:all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275); display:flex; align-items:center; gap:8px; }
-.toast.show { transform:translateY(0); opacity:1; }
-.toast-success { border-left:4px solid #2ecc71; color:#ffffff; }
-.toast-error { border-left:4px solid #e74c3c; color:#ffffff; }
-.toast-info { border-left:4px solid var(--gold); color:#ffffff; }
+/* DETAIL SCREEN */
+.detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.btn-back { background: transparent; border: none; color: var(--primary); font-weight: 600; font-size: 14px; cursor: pointer; }
+.detail-title { font-weight: 800; font-size: 17px; text-align: center; flex: 1; color: var(--primary); }
+.detail-status { font-size: 11px; font-weight: 700; color: var(--accent-dark); background: #FFFBEA; padding: 4px 8px; border-radius: 6px; }
 
-.perfil-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9998; display: none; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.2s ease-out; }
-.perfil-modal-box { background: var(--panel-dark); border: 2px solid var(--gold); border-radius: 20px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
-.perfil-modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 24px; color: var(--gold); margin-bottom: 4px; }
-.perfil-modal-desc { font-size: 12px; color: var(--gray-400); margin-bottom: 16px; }
-.perfil-avatar-circle { width: 50px; height: 50px; background: var(--green-light); border: 2px solid var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'Bebas Neue', sans-serif; font-size: 22px; color: var(--gold); margin: 0 auto 16px auto; }
-.perfil-modal-actions { display: flex; gap: 10px; margin-top: 8px; }
-.btn-perfil-cancel { flex: 1; background: none; border: 1px solid rgba(255,255,255,0.15); color: var(--gray-400); padding: 12px; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; }
-@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.vs-hero { background: linear-gradient(135deg, var(--primary), var(--primary-light)); color: white; border-radius: var(--radius); padding: 20px 14px; display: flex; align-items: center; justify-content: space-between; text-align: center; margin-bottom: 16px; box-shadow: var(--shadow); }
+.team-hero { font-weight: 800; font-size: 18px; width: 40%; text-transform: uppercase; letter-spacing: 0.5px; }
+.vs-center { width: 20%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.vs-big { font-weight: 900; font-size: 14px; background: var(--accent); color: var(--primary); padding: 4px 8px; border-radius: 6px; }
+.game-date { font-size: 11px; opacity: 0.85; white-space: nowrap; margin-top: 4px; }
 
-/* ESTILOS ADICIONADOS RECENTEMENTE */
-.aviso-lances-iguais-regra { background: rgba(241,196,15,0.06); border: 1px solid rgba(241,196,15,0.25); color: #f1c40f; border-radius: 10px; padding: 10px; font-size: 11px; text-align: center; font-weight: 600; width:100%; }
-.banner-ganhador-sucesso { background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #ffffff; padding: 16px; border-radius: 16px; font-family: 'Bebas Neue', sans-serif; font-size: 22px; text-align: center; letter-spacing: 0.5px; margin-bottom: 14px; box-shadow: 0 4px 15px rgba(46,204,113,0.2); animation: fadeIn 0.3s ease-out; }
-.banner-ganhador-alerta { background: rgba(231,76,60,0.12); border: 2px solid #e74c3c; color: #ffffff; padding: 16px; border-radius: 16px; font-size: 13px; text-align: center; line-height: 1.5; margin-bottom: 14px; box-shadow: 0 4px 15px rgba(231,76,60,0.2); animation: fadeIn 0.3s ease-out; }
-.toggle-container { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px; }
-.toggle-container input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; accent-color: var(--gold); }
-.toggle-container label { font-size: 12px; color: var(--white); font-weight: 600; cursor: pointer; }
+/* INLINE PREVIEW LABELS */
+.aviso-mini { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; font-style: italic; }
+.lance-pub-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.lance-pub-row:last-child { border-bottom: none; }
+.lance-pub-nome { font-weight: 500; }
+.lance-pub-placar { font-family: monospace; font-size: 14px; background: #F4F7F5; padding: 2px 6px; border-radius: 4px; }
+.badge-comp-ok { color: var(--success); }
 
-/* LAYOUT DO CONTROLE FINANCEIRO DE GANHADORES */
-.ganhador-no-pix-actions { display:flex; gap:8px; margin-top:8px; }
-.btn-admin-alert { flex:1; background:none; border:1px solid #f1c40f; color:#f1c40f; border-radius:6px; padding:6px; font-size:10px; font-weight:700; cursor:pointer; }
-.btn-admin-contact { flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:var(--white); border-radius:6px; padding:6px; font-size:10px; font-weight:700; cursor:pointer; }
-.upload-premio-box input { display:none; }
-.premio-pago-box { margin-top:8px; background:rgba(46,204,113,0.05); padding:6px; border-radius:6px; border:1px solid rgba(46,204,113,0.2); text-align:center; }
-.status-pago-badge { font-size:9px; font-weight:900; background:#2ecc71; color:#0a190f; padding:2px 6px; border-radius:4px; display:inline-block; }
+/* ADMINISTRATIVE INFO CARD */
+.admin-banner { display: flex; align-items: center; gap: 10px; background: #F4F8F5; border: 1px solid #D5E6DC; padding: 10px; border-radius: 8px; margin-bottom: 14px; }
+.admin-icon { font-size: 20px; }
+.admin-text { flex: 1; }
+.admin-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: bold; }
+.admin-name { font-size: 13px; font-weight: 700; color: var(--primary); }
+.btn-trocar-admin { background: transparent; border: 1px solid var(--primary); color: var(--primary); font-size: 11px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+
+.info-grid { display: flex; gap: 10px; margin-bottom: 14px; }
+.info-card { flex:1; background: #F8FAF9; border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.info-card strong { color: var(--text); font-size: 13px; display: block; margin-top: 2px; }
+.pix-key { color: var(--primary-light) !important; background: #E8F0EA; padding: 1px 4px; border-radius: 4px; cursor: pointer; word-break: break-all; }
+
+.stats-row { display: flex; justify-content: space-between; margin-bottom: 14px; gap: 6px; }
+.stat-box { flex: 1; text-align: center; background: #FAFBFB; border: 1px solid var(--border); padding: 8px 4px; border-radius: 8px; }
+.stat-num { display: block; font-weight: 800; font-size: 15px; color: var(--text); }
+.stat-label { font-size: 9px; color: var(--text-muted); }
+.total-box { background: #FFFBEA; border-color: #FCE8B2; }
+.total-box .stat-num { color: var(--accent-dark); }
+
+.acumulado-banner { background: #FFF0F0; border: 1px solid #FFD1D1; color: var(--error); padding: 8px; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; margin-bottom: 12px; }
+.aviso-comprovante-inline { font-size: 11px; background: #FFF8E1; border: 1px solid #FFE082; padding: 6px; border-radius: 6px; color: #B78103; text-align: center; margin-bottom: 12px; }
+
+.participants-row { margin-top: 10px; }
+.participants-label { font-size: 12px; font-weight: bold; margin-bottom: 6px; color: var(--text); }
+.participant-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.participant-chip { background: #F0F4F1; font-size: 11px; padding: 4px 8px; border-radius: 12px; color: var(--primary-light); font-weight: 500; }
+.empty-p { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.share-row { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.share-label { font-size: 11px; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; }
+.share-link-box { display: flex; gap: 6px; }
+.share-link-box input { flex: 1; padding: 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: #FAFAFA; }
+.btn-copy { background: var(--primary-light); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; }
+.invited-list { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+
+/* LANCES SUBCARD AND INPUTS */
+.bet-subcard { background: #F8FAF9; border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin-bottom: 14px; }
+.bet-subcard-title { font-size: 12px; font-weight: bold; color: var(--primary); margin-bottom: 10px; text-transform: uppercase; }
+.score-input-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 12px; }
+.score-team { font-weight: bold; font-size: 14px; width: 35%; text-align: right; }
+.score-team:last-child { text-align: left; }
+.score-input { width: 50px; height: 42px; text-align: center; font-size: 20px; font-weight: bold; border: 1px solid var(--border); border-radius: 6px; background: white; }
+.score-sep { font-weight: bold; color: var(--text-muted); }
+.deadline-info { font-size: 11px; color: var(--text-muted); text-align: center; margin-bottom: 10px; }
+.apostaEncerrada { background: #F1F3F4; border: 1px solid var(--border); color: var(--text-muted); padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: bold; }
+
+/* USER LANCES LIST */
+.my-lances-list { margin-top: 14px; border-top: 2px solid var(--border); padding-top: 12px; }
+.my-lances-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; color: var(--text); }
+.my-lance-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+.my-lance-card.pago { border-left: 4px solid var(--success); }
+.my-lance-card.pago-sem-comp { border-left: 4px solid var(--accent); }
+.my-lance-card.pendente { border-left: 4px solid #9AA0A6; }
+.lance-placar { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+.lance-status { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.pix-reminder { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; background: #FAFAFA; padding: 4px; border-radius: 4px; }
+
+.comprovante-upload { margin-top: 6px; }
+.comprovante-upload input { display: none; }
+.btn-upload { display: block; background: #E8F0EA; color: var(--primary-light); text-align: center; padding: 8px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; border: 1px dashed var(--primary-light); }
+.divider-or { text-align: center; font-size: 10px; color: var(--text-muted); margin: 6px 0; }
+.btn-pago-sem { background: transparent; border: none; color: var(--text-muted); font-size: 11px; text-decoration: underline; width: 100%; text-align: center; cursor: pointer; }
+.encerrado-aviso { font-size: 11px; color: var(--error); font-weight: bold; }
+.comprovante-pago { display: flex; gap: 6px; margin-top: 4px; }
+.btn-ver-comp { background: #FAFAFA; border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; }
+.btn-ver-comp:hover { background: #EEEEEE; }
+
+.btn-concluir { background: var(--accent); color: var(--primary); border: none; padding: 10px; border-radius: 6px; font-weight: bold; font-size: 13px; margin-top: 10px; width: 100%; cursor: pointer; box-shadow: 0 2px 6px rgba(230,174,21,0.3); }
+.concluido-msg { text-align: center; font-size: 12px; color: var(--success); font-weight: bold; margin-top: 8px; background: #E6F4EA; padding: 6px; border-radius: 4px; }
+
+/* MANAGEMENT PANEL */
+.card-admin { border-color: #B4D5FF; }
+.card-admin .card-header { background: #F1F7FF; color: #1A73E8; }
+.admin-sub { font-size: 12px; font-weight: bold; color: var(--text); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+.admin-ganhadores { background: #E8F0EA; border: 1px solid #C4DFCC; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+.ganhador-admin-card { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; background: white; padding: 6px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }
+.ganhador-admin-nome { font-weight: bold; }
+.ganhador-admin-valor { font-weight: bold; color: var(--success); }
+.ganhador-admin-pix { width: 100%; font-size: 11px; color: var(--text-muted); margin-top: 4px; border-top: 1px dashed var(--border); padding-top: 2px; }
+
+.comp-admin-card { background: #FAFAFA; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
+.comp-admin-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 2px; }
+.comp-admin-pix { font-size: 10px; color: var(--text-muted); font-weight: normal; }
+.comp-admin-placar { font-family: monospace; background: #EEE; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 4px; }
+.comp-admin-card.sem-comp { border-left: 3px solid var(--accent); display: flex; justify-content: space-between; padding: 6px 8px; }
+.comp-admin-card.pendente-admin { border-left: 3px solid #9AA0A6; display: flex; justify-content: space-between; padding: 6px 8px; color: var(--text-muted); }
+
+/* RESULT PANEL & BOXES */
+.card-resultado-final { border-color: #CEEAD6; }
+.card-resultado-final .card-header { background: #E6F4EA; color: var(--success); }
+.placar-final { text-align: center; font-size: 20px; font-weight: 800; margin: 10px 0; color: var(--primary); }
+.placar-final span { background: var(--primary); color: white; padding: 2px 8px; border-radius: 4px; margin: 0 4px; font-family: monospace; }
+.ganhadores-pub { background: #E6F4EA; border: 1px solid #C4DFCC; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: bold; color: var(--primary); }
+.ganhador-chip { background: white; padding: 4px 8px; border-radius: 12px; margin-top: 4px; font-weight: normal; font-size: 12px; display: inline-block; border: 1px solid #B8E1C4; }
+.acumulou { background: #FFF0F0; color: var(--error); padding: 10px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 13px; }
+.lance-resumo { font-size: 12px; color: var(--text-muted); padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.card-fechado { border-color: #FCE8B2; }
+.card-fechado .card-header { background: #FFFBEA; color: var(--accent-dark); }
+.total-acumulado { font-weight: bold; font-size: 13px; margin-bottom: 8px; color: var(--accent-dark); text-align: center; background: #FFF8E1; padding: 6px; border-radius: 4px; }
+
+.btn-resultado { margin-top: 6px; background: var(--accent); color: var(--primary); }
+.btn-resultado:hover { background: var(--accent-dark); }
+
+/* JOIN CARD */
+.join-card { background: white; border-radius: var(--radius); border: 1px solid var(--border); padding: 24px; text-align: center; box-shadow: var(--shadow); margin-top: 16px; }
+.join-icon { font-size: 40px; margin-bottom: 12px; }
+.join-title { font-size: 18px; font-weight: 800; color: var(--primary); margin-bottom: 6px; }
+.join-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.4; }
+.join-info { display: flex; justify-content: space-around; background: #F4F7F5; padding: 10px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; }
+.aviso-comprovante { font-size: 11px; color: #B78103; background: #FFF8E1; padding: 8px; border-radius: 6px; margin-bottom: 16px; }
+.btn-join { font-size: 15px; padding: 14px; background: var(--accent); color: var(--primary); box-shadow: 0 4px 10px rgba(230,174,21,0.3); }
+.btn-join:hover { background: var(--accent-dark); }
+
+/* NAV FOOTER */
+.nav-footer { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid var(--border); display: flex; height: 56px; max-width: 480px; margin: 0 auto; box-shadow: 0 -2px 10px rgba(0,0,0,0.03); z-index: 100; }
+.nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 600; cursor: pointer; gap: 2px; }
+.nav-btn span { font-size: 18px; }
+.nav-btn.active { color: var(--primary); }
+
+/* EMPTY / LOADING STATES */
+.empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+.empty-icon { font-size: 36px; display: block; margin-bottom: 10px; opacity: 0.5; }
+.loading-dots { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 20px; }
+.loading-dots span { width: 8px; height: 8px; background: var(--primary); border-radius: 50%; animation: dotPulse 1.2s infinite ease-in-out both; }
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes dotPulse { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
 </style>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 </head>
 <body>
 
-<div class="loading-overlay" id="loading-overlay" style="display:none">
-  <div class="loading-dots"><span></span><span></span><span></span></div>
-</div>
-
-<div class="perfil-modal-mask" id="modal-perfil-usuario">
-  <div class="perfil-modal-box">
-    <div class="perfil-modal-title">👤 Perfil do Usuário</div>
-    <div class="perfil-modal-desc">Gerencie seus dados e suas informações de recebimento.</div>
-    
-    <div class="perfil-avatar-circle" id="perfil-avatar-letter">⚽</div>
-    
-    <div class="form-group">
-      <label>Nome Completo *</label>
-      <input type="text" id="p-name" placeholder="Seu nome completo">
-    </div>
-    <div class="form-group">
-      <label>E-mail (Inalterável)</label>
-      <input type="email" id="p-email" disabled style="opacity: 0.5; background: rgba(0,0,0,0.2);">
-    </div>
-    <div class="form-group">
-      <label>Telefone (Opcional)</label>
-      <input type="tel" id="p-phone" placeholder="(00) 99999-9999">
-    </div>
-    <div class="form-group">
-      <label>🏦 Sua Chave PIX para receber prêmio</label>
-      <input type="text" id="p-pix" placeholder="CPF, e-mail, telefone ou chave aleatória">
-      <div style="font-size: 10px; color: var(--gray-400); margin-top: 4px;">Exibida automaticamente ao administrador financeiro caso você vença.</div>
-    </div>
-    
-    <div class="perfil-modal-actions">
-      <button class="btn-primary" style="flex: 1.5; padding: 12px;" onclick="saveProfile()">💾 Salvar</button>
-      <button class="btn-perfil-cancel" onclick="fecharModalPerfil()">Fechar</button>
-    </div>
-  </div>
-</div>
+<div id="loading-overlay"><div class="spinner"></div></div>
 
 <div class="top-bar">
-  <div class="brand" onclick="showView('home')" style="cursor:pointer">⚽ BOLÃO DA ALEGRIA</div>
-  <div class="user-menu">
-    <div class="user-welcome" id="user-name-display">—</div>
-    <button class="btn-perfil-top" onclick="abrirModalPerfil()">👤 Perfil</button>
-    <button class="btn-logout" onclick="logoutUser()">Sair</button>
+  <div class="brand">Bolão da Alegria ⚽</div>
+  <div class="top-user">
+    <span class="user-btn" onclick="showView('profile')" id="user-name-display">—</span>
+    <button class="user-btn" onclick="logoutUser()">Sair 👋</button>
   </div>
 </div>
 
-<div class="main-container">
-  <div class="view" id="view-auth">
+<div class="container">
+
+  <div class="view" id="view-auth" style="display: block;">
     <div class="auth-box">
       <div class="auth-tabs">
-        <div class="auth-tab active" data-tab="login" onclick="showTab('login')">ENTRAR</div>
-        <div class="auth-tab" data-tab="register" onclick="showTab('register')">CADASTRAR</div>
+        <div class="auth-tab active" data-tab="login" onclick="showTab('login')">Entrar</div>
+        <div class="auth-tab" data-tab="register" onclick="showTab('register')">Cadastrar</div>
       </div>
       
       <div class="auth-panel" id="panel-login">
         <div class="form-group"><label>E-mail</label><input type="email" id="login-email" placeholder="seu@email.com"></div>
         <div class="form-group"><label>Senha</label><input type="password" id="login-pass" placeholder="••••••••"></div>
-        <button class="btn-primary" onclick="loginUser()">Entrar na Conta 🚀</button>
+        <button class="btn-primary" onclick="loginUser()">Entrar ➔</button>
       </div>
       
-      <div class="auth-panel" id="panel-register" style="display:none">
+      <div class="auth-panel" id="panel-register" style="display: none;">
         <div class="form-group"><label>Nome Completo</label><input type="text" id="reg-name" placeholder="Ex: João Silva"></div>
         <div class="form-group"><label>E-mail</label><input type="email" id="reg-email" placeholder="seu@email.com"></div>
-        <div class="form-group"><label>Senha</label><input type="password" id="reg-pass" placeholder="Mínimo 6 dígitos"></div>
-        <button class="btn-primary" onclick="registerUser()">Criar Minha Conta 🎉</button>
+        <div class="form-group"><label>Senha (mín. 6 caracteres)</label><input type="password" id="reg-pass" placeholder="••••••••"></div>
+        <button class="btn-primary" onclick="registerUser()">Criar Conta 🎉</button>
       </div>
     </div>
   </div>
 
   <div class="view" id="view-home">
-    <button class="btn-action-main" onclick="showView('create-bolao')">➕ Criar Novo Bolão</button>
-    <div class="section-title">Meus Bolões</div>
+    <div class="home-hero">
+      <h2>Meus Bolões</h2>
+      <p>Acompanhe seus jogos, envie comprovantes e gerencie seus lances.</p>
+    </div>
     <div id="boloes-list"></div>
   </div>
 
-  <div class="view" id="view-create-bolao">
-    <div class="detail-header">
-      <button class="btn-back" onclick="showView('home')">← Cancelar</button>
-      <div class="detail-title">Novo Bolão</div>
+  <div class="view" id="view-create">
+    <div class="collapsible-card">
+      <div class="card-header"><span>🎉 Criar Novo Bolão</span></div>
+      <div class="card-body">
+        <div class="form-group"><label>Nome do Bolão *</label><input type="text" id="b-name" placeholder="Ex: Rodada Clássicos / Final da Copa"></div>
+        <div class="form-row">
+          <div class="form-group"><label>Time 1 *</label><input type="text" id="b-team1" placeholder="Brasil"></div>
+          <div class="form-group"><label>Time 2 *</label><input type="text" id="b-team2" placeholder="Argentina"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Data *</label><input type="date" id="b-date"></div>
+          <div class="form-group"><label>Horário *</label><input type="time" id="b-time"></div>
+        </div>
+        <div class="form-group"><label>Valor por Lance (R$) *</label><input type="number" id="b-valor" placeholder="10.00" step="0.01" min="0.01"></div>
+        <div class="form-group"><label>Chave PIX para receber pagamentos *</label><input type="text" id="b-pix" placeholder="CPF, e-mail, telefone ou chave aleatória"></div>
+        <div class="form-group"><label>E-mails dos convidados (separados por vírgula)</label><textarea id="b-emails" placeholder="amigo@email.com, outro@email.com"></textarea></div>
+        <button class="btn-primary" onclick="createBolao()">🎉 Criar Bolão</button>
+        <br><br>
+      </div>
     </div>
-    <div class="auth-box" style="margin-top:0; padding:18px;">
-      <div class="form-group"><label>Nome do Bolão *</label><input type="text" id="b-name" placeholder="Ex: Final da Champions / Copa 2026"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Time 1 *</label><input type="text" id="b-team1" placeholder="Brasil"></div>
-        <div class="form-group"><label>Time 2 *</label><input type="text" id="b-team2" placeholder="Argentina"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Data *</label><input type="date" id="b-date"></div>
-        <div class="form-group"><label>Horário *</label><input type="time" id="b-time"></div>
-      </div>
-      <div class="form-group"><label>Valor por Lance (R$) *</label><input type="number" id="b-valor" placeholder="10.00" step="0.01" min="0.01"></div>
-      <div class="form-group"><label>Chave PIX para receber pagamentos *</label><input type="text" id="b-pix" placeholder="CPF, e-mail, telefone ou chave aleatória"></div>
-      
-      <div class="toggle-container">
-        <input type="checkbox" id="b-bloquear-iguais">
-        <label for="b-bloquear-iguais">Bloquear lances iguais (Não aceita lances iguais para apostas pagas)</label>
-      </div>
+  </div>
 
-      <div class="form-group"><label>E-mails dos convidados (separados por vírgula)</label><textarea id="b-emails" placeholder="amigo@email.com, outro@email.com"></textarea></div>
-      <button class="btn-primary" onclick="createBolao()">🎉 Criar Bolão</button>
-      <br><br>
+  <div class="view" id="view-profile">
+    <div class="collapsible-card">
+      <div class="card-header"><span>👤 Meu Perfil</span></div>
+      <div class="card-body" id="profile-content"></div>
     </div>
   </div>
 
@@ -1360,6 +1148,13 @@ body { background: var(--bg-dark); color: var(--white); padding: 0; min-height: 
       <div class="loading-dots"><span></span><span></span><span></span></div>
     </div>
   </div>
+
+</div>
+
+<div class="nav-footer" id="main-nav-footer">
+  <button class="nav-btn active" id="nav-home" onclick="document.querySelectorAll('.nav-footer button').forEach(b=>b.classList.remove('active')); $('nav-home').classList.add('active'); showView('home');"><span>⚽</span>Jogos</button>
+  <button class="nav-btn" id="nav-create" onclick="document.querySelectorAll('.nav-footer button').forEach(b=>b.classList.remove('active')); $('nav-create').classList.add('active'); showView('create');"><span>➕</span>Criar</button>
+  <button class="nav-btn" id="nav-profile" onclick="document.querySelectorAll('.nav-footer button').forEach(b=>b.classList.remove('active')); $('nav-profile').classList.add('active'); showView('profile');"><span>👤</span>Perfil</button>
 </div>
 
 </body>
