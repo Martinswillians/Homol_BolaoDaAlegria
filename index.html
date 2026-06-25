@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#1E88E5">
+<meta name="theme-color" content="#0D3B1A">
 <title>Bolão da Alegria ⚽</title>
 
 <script type="module">
@@ -14,7 +14,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, arrayUnion, onSnapshot, query, where, serverTimestamp, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ── CONFIGURAÇÃO DE HOMOLOGAÇÃO RESTAURADA ──────────────────────────────────
+// ── CONFIGURAÇÃO DE HOMOLOGAÇÃO CORRETA ──────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyDIg_DxCxbl0nfr4oOpzsT07DGqL6phdFQ",
   authDomain: "homolboloadaalegria.firebaseapp.com",
@@ -826,19 +826,19 @@ setTimeout(checkDeepLink, 1500);
 </script>
 
 <style>
-/* ── PALETA DE CORES MODERNA RESTAURADA ───────────────────────────────────── */
+/* ── PALETA DE CORES CLÁSSICA E ORIGINAL RESTAURADA ───────────────────────── */
 :root {
-  --primary: #1E88E5;
-  --primary-light: #64B5F6;
-  --accent: #FFB300;
-  --accent-dark: #FF8F00;
-  --bg: #F5F7FA;
-  --card-bg: #FFFFFF;
-  --text: #2C3E50;
-  --text-muted: #7F8C8D;
-  --border: #E2E8F0;
-  --error: #E53935;
-  --success: #4CAF50;
+  --primary: #0D3B1A;
+  --primary-light: #1b5e20;
+  --accent: #f57f17;
+  --accent-dark: #f57f17;
+  --bg: #f5f5f5;
+  --card-bg: #ffffff;
+  --text: #212121;
+  --text-muted: #666666;
+  --border: #e0e0e0;
+  --error: #d32f2f;
+  --success: #388e3c;
   --radius: 12px;
   --shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
